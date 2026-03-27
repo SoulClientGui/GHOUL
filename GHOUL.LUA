@@ -42,6 +42,7 @@ local COMMANDS = {
     { cat = "PLAYER",   key = ";kill",      desc = "Kill a player in server" },
     { cat = "PLAYER",   key = ";tp",        desc = "Teleport to a player" },
     { cat = "PLAYER",   key = ";bring",     desc = "Bring a player to you (client)" },
+    { cat = "PLAYER",   key = ";emotes",    desc = "Open emotes menu" },
     { cat = "VISUAL",   key = ";esp",       desc = "Toggle player ESP outlines" },
     { cat = "VISUAL",   key = ";box",       desc = "Toggle box ESP" },
     { cat = "VISUAL",   key = ";chams",     desc = "Toggle tracers + name tags" },
@@ -1201,6 +1202,14 @@ local function loadAnims()
     end)
 end
 
+-- ── EMOTES ───────────────────────────────────────────────────
+local function loadEmotes()
+    showToast("Loading Emotes...")
+    pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/7yd7/Hub/refs/heads/Branch/GUIS/Emotes.lua"))()
+    end)
+end
+
 -- ── FLASH TELEPORT (;ftp) ─────────────────────────────────────
 -- While active: press F to teleport to mouse position + faint blood sound
 local ftpActive = false
@@ -1208,10 +1217,9 @@ local ftpConn   = nil
 local ftpMouse  = LocalPlayer:GetMouse()
 
 local function playBloodSplatter()
-    -- Faint blood splatter sound (Roblox free asset)
     local snd = Instance.new("Sound")
-    snd.SoundId = "rbxassetid://5221257759" -- blood splatter sfx
-    snd.Volume = 0.08  -- very faint
+    snd.SoundId = "rbxassetid://5221257759"
+    snd.Volume = 0.7          -- audible but not obnoxious
     snd.RollOffMaxDistance = 1
     snd.Parent = workspace
     snd:Play()
@@ -1231,9 +1239,8 @@ local function toggleFTP()
                 end
                 local myChar = LocalPlayer.Character; if not myChar then return end
                 local myHRP  = myChar:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
-                -- Get mouse hit position
                 local target = ftpMouse.Hit.Position + Vector3.new(0, 3, 0)
-                -- Flash effect: brief white screen
+                -- Dark flash (not blinding white)
                 local FlashGui = Instance.new("ScreenGui")
                 FlashGui.Name = "GhoulFTPFlash"
                 FlashGui.ResetOnSpawn = false
@@ -1241,8 +1248,8 @@ local function toggleFTP()
                 FlashGui.Parent = PlayerGui
                 local FlashFrame = Instance.new("Frame")
                 FlashFrame.Size = UDim2.new(1,0,1,0)
-                FlashFrame.BackgroundColor3 = Color3.fromRGB(255,255,255)
-                FlashFrame.BackgroundTransparency = 0
+                FlashFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)  -- dark grey, not white
+                FlashFrame.BackgroundTransparency = 0.35                   -- starts semi-transparent
                 FlashFrame.BorderSizePixel = 0
                 FlashFrame.ZIndex = 999
                 FlashFrame.Parent = FlashGui
@@ -1250,11 +1257,11 @@ local function toggleFTP()
                 myHRP.CFrame = CFrame.new(target)
                 -- Blood sound
                 playBloodSplatter()
-                -- Fade flash out
-                TweenService:Create(FlashFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                -- Fade out quickly
+                TweenService:Create(FlashFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                     BackgroundTransparency = 1
                 }):Play()
-                task.delay(0.35, function() FlashGui:Destroy() end)
+                task.delay(0.3, function() FlashGui:Destroy() end)
             end
         end)
     else
@@ -1283,6 +1290,7 @@ local function setupChatListener()
         elseif msg == ";kill"     then openKillGui()
         elseif msg == ";tp"       then openTpGui()
         elseif msg == ";bring"    then openBringGui()
+        elseif msg == ";emotes"   then loadEmotes()
         elseif msg == ";esp"      then toggleESP()
         elseif msg == ";box"      then toggleBox()
         elseif msg == ";chams"    then toggleChams()
@@ -1341,6 +1349,7 @@ local cmdActions = {
     [";kill"]       = openKillGui,
     [";tp"]         = openTpGui,
     [";bring"]      = openBringGui,
+    [";emotes"]     = loadEmotes,
     [";esp"]        = toggleESP,
     [";box"]        = toggleBox,
     [";chams"]      = toggleChams,
