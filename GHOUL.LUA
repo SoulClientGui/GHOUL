@@ -1818,6 +1818,14 @@ local function buildStatusBar()
 
     -- Start chat listener after bar is built
     setupChatListener()
+
+    -- X key: open/close the commands panel (same as clicking the UI pill)
+    UserInputService.InputBegan:Connect(function(inp, gameProcessed)
+        if gameProcessed then return end
+        if inp.KeyCode == Enum.KeyCode.X then
+            buildCommandsPanel()
+        end
+    end)
 end
 
 -- ============================================================
