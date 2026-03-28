@@ -54,10 +54,32 @@ local COMMANDS = {
 }
 
 local ANIMATIONS = {
-    "Backflip","Moonwalk","Griddy","Shuffle","Robot",
-    "Disco","Hype","Floss","Dab","Samba","Salsa",
-    "Wave","Worm","Running Man","Carlton","Dougie",
-    "Whip","Nae Nae","Gangnam Style","Dagger",
+    -- Default Roblox moves
+    "Default Walk", "Default Run", "Default Jump", "Default Idle",
+    "Default Climb", "Default Fall", "Default Swim",
+    -- Hype dances
+    "Griddy", "Hype", "Floss", "Dab", "Twerk",
+    "Renegade", "Whoa", "Woah", "Nae Nae", "Whip",
+    "Shoot", "Shoot Dance", "Orange Justice", "Fresh",
+    -- Meme dances
+    "Gangnam Style", "Harlem Shake", "Cha Cha Slide",
+    "Running Man", "Macarena", "YMCA", "Cotton Eye Joe",
+    "Coffin Dance", "Distracted Boyfriend", "Rickroll",
+    "Fortnite Default", "Fortnite Floss", "Fortnite Orange Justice",
+    -- Smooth / classic
+    "Moonwalk", "Robot", "Worm", "Windmill", "Backflip",
+    "Carlton", "Samba", "Salsa", "Disco", "Shuffle",
+    "Dougie", "Wave", "Griddy Slide", "Bounce",
+    -- TikTok / viral
+    "Savage", "WAP", "Up", "Blinding Lights",
+    "Toosie Slide", "Lottery", "Cannibal",
+    "Do Your Thang", "Doja Cat", "Laffy Taffy",
+    -- Idle / chill
+    "Lean", "Headbang", "Air Guitar", "Finger Gun",
+    "Clap", "Snap", "Point", "Shrug", "Facepalm",
+    -- Extras
+    "Backpack Kid", "Pen Pineapple", "Juju", "Dagger",
+    "Go Stupid", "Wheezing", "Sped Up Walk",
 }
 
 -- ============================================================
@@ -1211,62 +1233,139 @@ local function loadEmotes()
 end
 
 -- ── FLASH TELEPORT (;ftp) ─────────────────────────────────────
--- While active: press F to teleport to mouse position + faint blood sound
+-- Toggle with ;ftp — while active press F to teleport to mouse.
+-- On teleport: flash sound + red blood drips down the screen.
 local ftpActive = false
 local ftpConn   = nil
 local ftpMouse  = LocalPlayer:GetMouse()
 
-local function playBloodSplatter()
-    local snd = Instance.new("Sound")
-    snd.SoundId = "rbxassetid://5221257759"
-    snd.Volume = 0.7          -- audible but not obnoxious
-    snd.RollOffMaxDistance = 1
-    snd.Parent = workspace
-    snd:Play()
-    game:GetService("Debris"):AddItem(snd, 3)
+-- Flash + whoosh sound on teleport
+local function playFTPSound()
+    -- Whoosh / flash SFX
+    local whoosh = Instance.new("Sound")
+    whoosh.SoundId  = "rbxassetid://4612375922"  -- fast whoosh
+    whoosh.Volume   = 1.0
+    whoosh.Parent   = workspace
+    whoosh:Play()
+    game:GetService("Debris"):AddItem(whoosh, 3)
+
+    -- Blood splatter SFX
+    local blood = Instance.new("Sound")
+    blood.SoundId = "rbxassetid://5221257759"
+    blood.Volume  = 0.85
+    blood.Parent  = workspace
+    blood:Play()
+    game:GetService("Debris"):AddItem(blood, 3)
+end
+
+-- Spawn red blood drips sliding down the screen
+local function spawnBloodEffect()
+    local BGui = Instance.new("ScreenGui")
+    BGui.Name            = "GhoulBloodEffect"
+    BGui.ResetOnSpawn    = false
+    BGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+    BGui.IgnoreGuiInset  = true
+    BGui.Parent          = PlayerGui
+
+    -- Red flash overlay — sharp hit then fades
+    local Flash = Instance.new("Frame")
+    Flash.Size                  = UDim2.new(1, 0, 1, 0)
+    Flash.BackgroundColor3      = Color3.fromRGB(160, 0, 0)
+    Flash.BackgroundTransparency = 0.25
+    Flash.BorderSizePixel       = 0
+    Flash.ZIndex                = 990
+    Flash.Parent                = BGui
+
+    TweenService:Create(Flash, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundTransparency = 1
+    }):Play()
+
+    -- Spawn several blood drip strips across the top of the screen
+    local NUM_DRIPS = 14
+    for i = 1, NUM_DRIPS do
+        local xPos   = math.random(0, 95) / 100   -- random horizontal position
+        local width  = math.random(12, 38)          -- drip width in px
+        local height = math.random(120, 340)        -- drip drop distance in px
+        local delay  = math.random(0, 18) / 100     -- slight stagger
+
+        local Drip = Instance.new("Frame")
+        Drip.Size                  = UDim2.new(0, width, 0, 0)
+        Drip.Position              = UDim2.new(xPos, 0, 0, 0)
+        Drip.BackgroundColor3      = Color3.fromRGB(
+            math.random(140, 200), 0, 0)            -- slightly varied red
+        Drip.BackgroundTransparency = 0
+        Drip.BorderSizePixel       = 0
+        Drip.ZIndex                = 991
+        Drip.Parent                = BGui
+
+        -- Rounded bottom on each drip
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = Drip
+
+        -- Animate drip growing downward
+        task.delay(delay, function()
+            TweenService:Create(Drip, TweenInfo.new(
+                math.random(25, 55) / 100,          -- 0.25 – 0.55 s fall
+                Enum.EasingStyle.Quad,
+                Enum.EasingDirection.Out
+            ), { Size = UDim2.new(0, width, 0, height) }):Play()
+
+            -- Then fade the drip out
+            task.delay(0.4, function()
+                TweenService:Create(Drip, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    BackgroundTransparency = 1
+                }):Play()
+            end)
+        end)
+    end
+
+    -- Destroy the whole effect gui after it's done
+    task.delay(1.2, function()
+        BGui:Destroy()
+    end)
 end
 
 local function toggleFTP()
+    -- Always clean up any previous connection first
+    if ftpConn then ftpConn:Disconnect() ftpConn = nil end
+
     ftpActive = not ftpActive
     showToast(ftpActive and ";ftp  ON  —  press F to teleport" or ";ftp  OFF")
-    if ftpActive then
-        ftpConn = UserInputService.InputBegan:Connect(function(inp, gp)
-            if gp then return end
-            if inp.KeyCode == Enum.KeyCode.F then
-                if not ftpActive then
-                    if ftpConn then ftpConn:Disconnect() ftpConn=nil end
-                    return
-                end
-                local myChar = LocalPlayer.Character; if not myChar then return end
-                local myHRP  = myChar:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
-                local target = ftpMouse.Hit.Position + Vector3.new(0, 3, 0)
-                -- Dark flash (not blinding white)
-                local FlashGui = Instance.new("ScreenGui")
-                FlashGui.Name = "GhoulFTPFlash"
-                FlashGui.ResetOnSpawn = false
-                FlashGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-                FlashGui.Parent = PlayerGui
-                local FlashFrame = Instance.new("Frame")
-                FlashFrame.Size = UDim2.new(1,0,1,0)
-                FlashFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)  -- dark grey, not white
-                FlashFrame.BackgroundTransparency = 0.35                   -- starts semi-transparent
-                FlashFrame.BorderSizePixel = 0
-                FlashFrame.ZIndex = 999
-                FlashFrame.Parent = FlashGui
-                -- Teleport
-                myHRP.CFrame = CFrame.new(target)
-                -- Blood sound
-                playBloodSplatter()
-                -- Fade out quickly
-                TweenService:Create(FlashFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                    BackgroundTransparency = 1
-                }):Play()
-                task.delay(0.3, function() FlashGui:Destroy() end)
-            end
-        end)
-    else
-        if ftpConn then ftpConn:Disconnect() ftpConn=nil end
-    end
+
+    if not ftpActive then return end
+
+    ftpConn = UserInputService.InputBegan:Connect(function(inp, gameProcessed)
+        -- Only block if a TextBox is focused (so chat doesn't interfere),
+        -- but still fire even if Roblox marks it as game-processed
+        if gameProcessed and UserInputService:GetFocusedTextBox() then return end
+        if inp.KeyCode ~= Enum.KeyCode.F then return end
+        if not ftpActive then return end
+
+        local myChar = LocalPlayer.Character
+        if not myChar then return end
+        local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+        if not myHRP then return end
+
+        -- Raycast excluding own character so we don't land inside ourselves
+        local params = RaycastParams.new()
+        params.FilterDescendantsInstances = {myChar}
+        params.FilterType = Enum.RaycastFilterType.Exclude
+
+        local unitRay = Camera:ScreenPointToRay(ftpMouse.X, ftpMouse.Y)
+        local result  = workspace:Raycast(unitRay.Origin, unitRay.Direction * 2000, params)
+
+        local target
+        if result then
+            target = result.Position + Vector3.new(0, 3, 0)
+        else
+            target = ftpMouse.Hit.Position + Vector3.new(0, 3, 0)
+        end
+
+        myHRP.CFrame = CFrame.new(target)
+        playFTPSound()
+        spawnBloodEffect()
+    end)
 end
 
 -- ============================================================
