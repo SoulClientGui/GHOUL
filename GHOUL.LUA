@@ -47,6 +47,7 @@ local COMMANDS = {
     { cat = "VISUAL",   key = ";box",       desc = "Toggle box ESP" },
     { cat = "VISUAL",   key = ";chams",     desc = "Toggle tracers + name tags" },
     { cat = "VISUAL",   key = ";fullbright",desc = "Toggle full brightness" },
+    { cat = "VISUAL",   key = ";reanim",    desc = "Open reanimation dance menu" },
     { cat = "MISC",     key = ";chat",      desc = "Send a chat message" },
     { cat = "MISC",     key = ";shaders",   desc = "Load post-processing shaders" },
     { cat = "MISC",     key = ";gravity",   desc = "Set gravity [n]" },
@@ -1224,6 +1225,191 @@ local function loadAnims()
     end)
 end
 
+-- ── REANIM GUI ────────────────────────────────────────────────
+local reanimGuiRef = nil
+local function openReanimGui()
+    if reanimGuiRef then reanimGuiRef:Destroy() reanimGuiRef = nil end
+
+    local G, Body = buildMiniGui("Reanimation", 320, 460, 300, 120)
+    reanimGuiRef = G
+
+    -- Green activate button at top
+    local ActivateBtn = Instance.new("TextButton")
+    ActivateBtn.Size = UDim2.new(1, -28, 0, 40)
+    ActivateBtn.Position = UDim2.new(0, 14, 0, 8)
+    ActivateBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 60)
+    ActivateBtn.Text = "▶  Activate Reanimation"
+    ActivateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ActivateBtn.Font = Enum.Font.GothamBold
+    ActivateBtn.TextSize = 14
+    ActivateBtn.BorderSizePixel = 0
+    ActivateBtn.ZIndex = 52
+    ActivateBtn.Parent = Body
+    makeCorner(ActivateBtn, 9)
+    ActivateBtn.MouseEnter:Connect(function()
+        TweenService:Create(ActivateBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(55, 185, 75)}):Play()
+    end)
+    ActivateBtn.MouseLeave:Connect(function()
+        TweenService:Create(ActivateBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(40, 160, 60)}):Play()
+    end)
+    ActivateBtn.MouseButton1Click:Connect(function()
+        showToast("Reanimation activated!")
+        -- loadstring runs the reanim script if you have a URL, otherwise just toast
+        pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/SoulClientGui/error/refs/heads/main/er", true))()
+        end)
+    end)
+
+    -- Divider
+    local Div = Instance.new("Frame")
+    Div.Size = UDim2.new(1, -28, 0, 1)
+    Div.Position = UDim2.new(0, 14, 0, 56)
+    Div.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    Div.BorderSizePixel = 0
+    Div.ZIndex = 52
+    Div.Parent = Body
+
+    -- Search bar
+    local SFrame = Instance.new("Frame")
+    SFrame.Size = UDim2.new(1, -28, 0, 34)
+    SFrame.Position = UDim2.new(0, 14, 0, 65)
+    SFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+    SFrame.ZIndex = 52
+    SFrame.Parent = Body
+    makeCorner(SFrame, 8)
+    makeStroke(SFrame, Color3.fromRGB(50, 50, 50), 1)
+
+    local SearchBox = Instance.new("TextBox")
+    SearchBox.Size = UDim2.new(1, -16, 1, 0)
+    SearchBox.Position = UDim2.new(0, 10, 0, 0)
+    SearchBox.BackgroundTransparency = 1
+    SearchBox.PlaceholderText = "Search dances..."
+    SearchBox.PlaceholderColor3 = Color3.fromRGB(75, 75, 75)
+    SearchBox.Text = ""
+    SearchBox.TextColor3 = Color3.fromRGB(210, 210, 210)
+    SearchBox.Font = Enum.Font.Gotham
+    SearchBox.TextSize = 13
+    SearchBox.TextXAlignment = Enum.TextXAlignment.Left
+    SearchBox.ClearTextOnFocus = false
+    SearchBox.ZIndex = 53
+    SearchBox.Parent = SFrame
+
+    -- Dance scroll list
+    local Scroll = Instance.new("ScrollingFrame")
+    Scroll.Size = UDim2.new(1, -28, 1, -110)
+    Scroll.Position = UDim2.new(0, 14, 0, 107)
+    Scroll.BackgroundTransparency = 1
+    Scroll.BorderSizePixel = 0
+    Scroll.ScrollBarThickness = 3
+    Scroll.ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70)
+    Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Scroll.ZIndex = 52
+    Scroll.Parent = Body
+
+    local ListLayout = Instance.new("UIListLayout")
+    ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    ListLayout.Padding = UDim.new(0, 4)
+    ListLayout.Parent = Scroll
+
+    -- Category data paired with animations
+    local DANCE_CATS = {
+        { cat = "DEFAULT MOVES",  items = {"Default Walk","Default Run","Default Jump","Default Idle","Default Climb","Default Fall","Default Swim"} },
+        { cat = "HYPE DANCES",    items = {"Griddy","Hype","Floss","Dab","Twerk","Renegade","Whoa","Woah","Nae Nae","Whip","Shoot","Shoot Dance","Orange Justice","Fresh"} },
+        { cat = "MEME DANCES",    items = {"Gangnam Style","Harlem Shake","Cha Cha Slide","Running Man","Macarena","YMCA","Cotton Eye Joe","Coffin Dance","Rickroll","Fortnite Default","Fortnite Floss","Fortnite Orange Justice"} },
+        { cat = "SMOOTH / CLASSIC", items = {"Moonwalk","Robot","Worm","Windmill","Backflip","Carlton","Samba","Salsa","Disco","Shuffle","Dougie","Wave","Bounce"} },
+        { cat = "TIKTOK / VIRAL", items = {"Savage","WAP","Up","Blinding Lights","Toosie Slide","Lottery","Cannibal","Do Your Thang","Laffy Taffy"} },
+        { cat = "IDLE / CHILL",   items = {"Lean","Headbang","Air Guitar","Finger Gun","Clap","Snap","Point","Shrug","Facepalm"} },
+        { cat = "EXTRAS",         items = {"Backpack Kid","Pen Pineapple","Juju","Dagger","Go Stupid","Sped Up Walk"} },
+    }
+
+    local function buildDanceRows(filter)
+        for _, c in ipairs(Scroll:GetChildren()) do
+            if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+        end
+        local order = 0
+        local q = (filter or ""):lower()
+        for _, group in ipairs(DANCE_CATS) do
+            local visibleItems = {}
+            for _, item in ipairs(group.items) do
+                if q == "" or item:lower():find(q, 1, true) then
+                    table.insert(visibleItems, item)
+                end
+            end
+            if #visibleItems > 0 then
+                -- Category label
+                local CatLbl = Instance.new("TextLabel")
+                CatLbl.Size = UDim2.new(1, 0, 0, 22)
+                CatLbl.BackgroundTransparency = 1
+                CatLbl.Text = group.cat
+                CatLbl.TextColor3 = Color3.fromRGB(130, 130, 130)
+                CatLbl.Font = Enum.Font.GothamBold
+                CatLbl.TextSize = 10
+                CatLbl.TextXAlignment = Enum.TextXAlignment.Left
+                CatLbl.ZIndex = 53
+                CatLbl.LayoutOrder = order
+                CatLbl.Parent = Scroll
+                order += 1
+
+                for _, animName in ipairs(visibleItems) do
+                    local Row = Instance.new("TextButton")
+                    Row.Size = UDim2.new(1, 0, 0, 36)
+                    Row.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+                    Row.BorderSizePixel = 0
+                    Row.Text = ""
+                    Row.AutoButtonColor = false
+                    Row.ZIndex = 53
+                    Row.LayoutOrder = order
+                    Row.Parent = Scroll
+                    makeCorner(Row, 7)
+                    makeStroke(Row, Color3.fromRGB(34, 34, 34), 1)
+                    order += 1
+
+                    Row.MouseEnter:Connect(function()
+                        TweenService:Create(Row, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(30, 30, 30)}):Play()
+                    end)
+                    Row.MouseLeave:Connect(function()
+                        TweenService:Create(Row, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22, 22, 22)}):Play()
+                    end)
+                    Row.MouseButton1Click:Connect(function()
+                        showToast("Playing: "..animName)
+                        -- Play animation — hook into animator when available
+                    end)
+
+                    local Lbl = Instance.new("TextLabel")
+                    Lbl.Size = UDim2.new(1, -16, 1, 0)
+                    Lbl.Position = UDim2.new(0, 12, 0, 0)
+                    Lbl.BackgroundTransparency = 1
+                    Lbl.Text = animName
+                    Lbl.TextColor3 = Color3.fromRGB(205, 205, 205)
+                    Lbl.Font = Enum.Font.Gotham
+                    Lbl.TextSize = 13
+                    Lbl.TextXAlignment = Enum.TextXAlignment.Left
+                    Lbl.ZIndex = 54
+                    Lbl.Parent = Row
+
+                    -- Play icon on right
+                    local PlayLbl = Instance.new("TextLabel")
+                    PlayLbl.Size = UDim2.new(0, 20, 1, 0)
+                    PlayLbl.Position = UDim2.new(1, -22, 0, 0)
+                    PlayLbl.BackgroundTransparency = 1
+                    PlayLbl.Text = "▶"
+                    PlayLbl.TextColor3 = Color3.fromRGB(70, 70, 70)
+                    PlayLbl.Font = Enum.Font.GothamBold
+                    PlayLbl.TextSize = 11
+                    PlayLbl.ZIndex = 54
+                    PlayLbl.Parent = Row
+                end
+            end
+        end
+    end
+
+    buildDanceRows()
+    SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        buildDanceRows(SearchBox.Text)
+    end)
+end
+
 -- ── EMOTES ───────────────────────────────────────────────────
 local function loadEmotes()
     showToast("Loading Emotes...")
@@ -1394,6 +1580,7 @@ local function setupChatListener()
         elseif msg == ";box"      then toggleBox()
         elseif msg == ";chams"    then toggleChams()
         elseif msg == ";fullbright" then toggleFullbright()
+        elseif msg == ";reanim"   then openReanimGui()
         elseif msg == ";chat"     then openChatGui()
         elseif msg == ";shaders"  then loadShaders()
         elseif msg == ";ftp"      then toggleFTP()
@@ -1453,6 +1640,7 @@ local cmdActions = {
     [";box"]        = toggleBox,
     [";chams"]      = toggleChams,
     [";fullbright"] = toggleFullbright,
+    [";reanim"]     = openReanimGui,
     [";chat"]       = openChatGui,
     [";shaders"]    = loadShaders,
     [";ftp"]        = toggleFTP,
@@ -1667,142 +1855,20 @@ local function buildCommandsPanel()
     buildCmdRows()
     LSearchBox:GetPropertyChangedSignal("Text"):Connect(function() buildCmdRows(LSearchBox.Text) end)
 
-    -- ── RIGHT PANEL ─────────────────────────────────────────────
+    -- ── RIGHT PANEL — empty (Reanimation moved to ;reanim command) ──
     local RightBg=Instance.new("Frame")
     RightBg.Size=UDim2.new(1,-(LeftW+1),1,0) RightBg.Position=UDim2.new(0,LeftW+1,0,0)
-    RightBg.BackgroundColor3=Color3.fromRGB(18,18,18) RightBg.BorderSizePixel=0
+    RightBg.BackgroundColor3=Color3.fromRGB(14,14,14) RightBg.BorderSizePixel=0
     RightBg.ZIndex=22 RightBg.Parent=Window
 
-    local RTitle=Instance.new("TextLabel")
-    RTitle.Size=UDim2.new(0,200,0,54) RTitle.Position=UDim2.new(0,20,0,0)
-    RTitle.BackgroundTransparency=1 RTitle.Text="Reanimation"
-    RTitle.TextColor3=Color3.fromRGB(255,255,255) RTitle.Font=Enum.Font.GothamBold
-    RTitle.TextSize=22 RTitle.TextXAlignment=Enum.TextXAlignment.Left RTitle.ZIndex=23 RTitle.Parent=RightBg
-
-    local IdleDot=Instance.new("Frame")
-    IdleDot.Size=UDim2.new(0,8,0,8) IdleDot.Position=UDim2.new(1,-72,0,23)
-    IdleDot.BackgroundColor3=Color3.fromRGB(155,155,155) IdleDot.BorderSizePixel=0 IdleDot.ZIndex=23 IdleDot.Parent=RightBg
-    makeCorner(IdleDot,99)
-
-    local IdleLbl=Instance.new("TextLabel")
-    IdleLbl.Size=UDim2.new(0,55,0,54) IdleLbl.Position=UDim2.new(1,-58,0,0)
-    IdleLbl.BackgroundTransparency=1 IdleLbl.Text="Idle"
-    IdleLbl.TextColor3=Color3.fromRGB(155,155,155) IdleLbl.Font=Enum.Font.Gotham
-    IdleLbl.TextSize=13 IdleLbl.TextXAlignment=Enum.TextXAlignment.Left IdleLbl.ZIndex=23 IdleLbl.Parent=RightBg
-
-    local RHBorder=Instance.new("Frame")
-    RHBorder.Size=UDim2.new(1,0,0,1) RHBorder.Position=UDim2.new(0,0,0,54)
-    RHBorder.BackgroundColor3=Color3.fromRGB(38,38,38) RHBorder.BorderSizePixel=0 RHBorder.ZIndex=22 RHBorder.Parent=RightBg
-
-    local ReanimBtn=Instance.new("TextButton")
-    ReanimBtn.Size=UDim2.new(1,-40,0,42) ReanimBtn.Position=UDim2.new(0,20,0,64)
-    ReanimBtn.BackgroundColor3=Color3.fromRGB(255,255,255) ReanimBtn.Text="Reanimate"
-    ReanimBtn.TextColor3=Color3.fromRGB(12,12,12) ReanimBtn.Font=Enum.Font.GothamBold
-    ReanimBtn.TextSize=15 ReanimBtn.BorderSizePixel=0 ReanimBtn.ZIndex=23 ReanimBtn.Parent=RightBg
-    makeCorner(ReanimBtn,10)
-    ReanimBtn.MouseEnter:Connect(function() TweenService:Create(ReanimBtn,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(225,225,225)}):Play() end)
-    ReanimBtn.MouseLeave:Connect(function() TweenService:Create(ReanimBtn,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(255,255,255)}):Play() end)
-
-    local tabNames={"Global","Favs","Custom","States"}
-    local tabBtns={}
-    local activeTab="Global"
-
-    local TabRow=Instance.new("Frame")
-    TabRow.Size=UDim2.new(1,-40,0,30) TabRow.Position=UDim2.new(0,20,0,116)
-    TabRow.BackgroundTransparency=1 TabRow.ZIndex=23 TabRow.Parent=RightBg
-
-    local TL=Instance.new("UIListLayout")
-    TL.FillDirection=Enum.FillDirection.Horizontal TL.Padding=UDim.new(0,6)
-    TL.VerticalAlignment=Enum.VerticalAlignment.Center TL.Parent=TabRow
-
-    local function refreshTabs()
-        for _,b in ipairs(tabBtns) do
-            if b.Name==activeTab then b.BackgroundColor3=Color3.fromRGB(255,255,255) b.TextColor3=Color3.fromRGB(12,12,12)
-            else b.BackgroundColor3=Color3.fromRGB(28,28,28) b.TextColor3=Color3.fromRGB(185,185,185) end
-        end
-    end
-    for _,tName in ipairs(tabNames) do
-        local Btn=Instance.new("TextButton")
-        Btn.Name=tName Btn.Size=UDim2.new(0,72,1,0) Btn.BackgroundColor3=Color3.fromRGB(28,28,28)
-        Btn.Text=tName Btn.TextColor3=Color3.fromRGB(185,185,185) Btn.Font=Enum.Font.GothamBold
-        Btn.TextSize=12 Btn.BorderSizePixel=0 Btn.ZIndex=24 Btn.Parent=TabRow
-        makeCorner(Btn,7) makeStroke(Btn,Color3.fromRGB(45,45,45),1)
-        table.insert(tabBtns,Btn)
-        Btn.MouseButton1Click:Connect(function() activeTab=tName refreshTabs() end)
-    end
-    refreshTabs()
-
-    local AnimSFrame=Instance.new("Frame")
-    AnimSFrame.Size=UDim2.new(1,-40,0,38) AnimSFrame.Position=UDim2.new(0,20,0,156)
-    AnimSFrame.BackgroundColor3=Color3.fromRGB(24,24,24) AnimSFrame.ZIndex=23 AnimSFrame.Parent=RightBg
-    makeCorner(AnimSFrame,9) makeStroke(AnimSFrame,Color3.fromRGB(45,45,45),1)
-
-    local SDot=Instance.new("Frame")
-    SDot.Size=UDim2.new(0,11,0,11) SDot.Position=UDim2.new(0,12,0.5,-5.5)
-    SDot.BackgroundColor3=Color3.fromRGB(170,170,170) SDot.BorderSizePixel=0 SDot.ZIndex=24 SDot.Parent=AnimSFrame
-    makeCorner(SDot,99)
-
-    local AnimSearchBox=Instance.new("TextBox")
-    AnimSearchBox.Size=UDim2.new(1,-40,1,0) AnimSearchBox.Position=UDim2.new(0,34,0,0)
-    AnimSearchBox.BackgroundTransparency=1 AnimSearchBox.PlaceholderText="search animations..."
-    AnimSearchBox.PlaceholderColor3=Color3.fromRGB(70,70,70) AnimSearchBox.Text=""
-    AnimSearchBox.TextColor3=Color3.fromRGB(220,220,220) AnimSearchBox.Font=Enum.Font.Gotham
-    AnimSearchBox.TextSize=13 AnimSearchBox.TextXAlignment=Enum.TextXAlignment.Left
-    AnimSearchBox.ClearTextOnFocus=false AnimSearchBox.ZIndex=24 AnimSearchBox.Parent=AnimSFrame
-
-    local AnimScroll=Instance.new("ScrollingFrame")
-    AnimScroll.Size=UDim2.new(1,-40,1,-206) AnimScroll.Position=UDim2.new(0,20,0,204)
-    AnimScroll.BackgroundTransparency=1 AnimScroll.BorderSizePixel=0
-    AnimScroll.ScrollBarThickness=3 AnimScroll.ScrollBarImageColor3=Color3.fromRGB(60,60,60)
-    AnimScroll.CanvasSize=UDim2.new(0,0,0,0) AnimScroll.AutomaticCanvasSize=Enum.AutomaticSize.Y
-    AnimScroll.ZIndex=23 AnimScroll.Parent=RightBg
-
-    local AL=Instance.new("UIListLayout")
-    AL.SortOrder=Enum.SortOrder.LayoutOrder AL.Padding=UDim.new(0,5) AL.Parent=AnimScroll
-
-    local starredAnims={}
-    local function buildAnimRows(filter)
-        for _,c in ipairs(AnimScroll:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
-        for i,animName in ipairs(ANIMATIONS) do
-            local q=(filter or ""):lower()
-            if q=="" or animName:lower():find(q,1,true) then
-                local Row=Instance.new("Frame")
-                Row.Size=UDim2.new(1,0,0,40) Row.BackgroundColor3=Color3.fromRGB(22,22,22)
-                Row.BorderSizePixel=0 Row.ZIndex=24 Row.LayoutOrder=i Row.Parent=AnimScroll
-                makeCorner(Row,8) makeStroke(Row,Color3.fromRGB(34,34,34),1)
-
-                local BulletLbl=Instance.new("TextLabel")
-                BulletLbl.Size=UDim2.new(0,16,1,0) BulletLbl.Position=UDim2.new(1,-46,0,0)
-                BulletLbl.BackgroundTransparency=1 BulletLbl.Text="·"
-                BulletLbl.TextColor3=Color3.fromRGB(85,85,85) BulletLbl.Font=Enum.Font.GothamBold
-                BulletLbl.TextSize=20 BulletLbl.ZIndex=25 BulletLbl.Parent=Row
-
-                local AnimLbl=Instance.new("TextLabel")
-                AnimLbl.Size=UDim2.new(1,-68,1,0) AnimLbl.Position=UDim2.new(0,12,0,0)
-                AnimLbl.BackgroundTransparency=1 AnimLbl.Text=animName
-                AnimLbl.TextColor3=Color3.fromRGB(205,205,205) AnimLbl.Font=Enum.Font.Gotham
-                AnimLbl.TextSize=13 AnimLbl.TextXAlignment=Enum.TextXAlignment.Left AnimLbl.ZIndex=25 AnimLbl.Parent=Row
-
-                local StarBtn=Instance.new("TextButton")
-                StarBtn.Size=UDim2.new(0,24,0,24) StarBtn.Position=UDim2.new(1,-28,0.5,-12)
-                StarBtn.BackgroundTransparency=1 StarBtn.Text=starredAnims[animName] and "★" or "☆"
-                StarBtn.TextColor3=starredAnims[animName] and Color3.fromRGB(255,255,255) or Color3.fromRGB(75,75,75)
-                StarBtn.Font=Enum.Font.GothamBold StarBtn.TextSize=15 StarBtn.ZIndex=25 StarBtn.Parent=Row
-                StarBtn.MouseButton1Click:Connect(function()
-                    starredAnims[animName]=not starredAnims[animName]
-                    buildAnimRows(AnimSearchBox.Text)
-                end)
-                StarBtn.MouseEnter:Connect(function()
-                    if not starredAnims[animName] then StarBtn.TextColor3=Color3.fromRGB(180,180,180) end
-                end)
-                StarBtn.MouseLeave:Connect(function()
-                    if not starredAnims[animName] then StarBtn.TextColor3=Color3.fromRGB(75,75,75) end
-                end)
-            end
-        end
-    end
-    buildAnimRows()
-    AnimSearchBox:GetPropertyChangedSignal("Text"):Connect(function() buildAnimRows(AnimSearchBox.Text) end)
+    -- Centered hint text
+    local HintLbl=Instance.new("TextLabel")
+    HintLbl.Size=UDim2.new(1,-40,0,60) HintLbl.Position=UDim2.new(0,20,0.5,-30)
+    HintLbl.BackgroundTransparency=1
+    HintLbl.Text="Type  ;reanim  or click it\nin the commands list\nto open the dance menu"
+    HintLbl.TextColor3=Color3.fromRGB(55,55,55) HintLbl.Font=Enum.Font.Gotham
+    HintLbl.TextSize=13 HintLbl.TextXAlignment=Enum.TextXAlignment.Center
+    HintLbl.TextWrapped=true HintLbl.ZIndex=23 HintLbl.Parent=RightBg
 
     local escConn
     escConn=UserInputService.InputBegan:Connect(function(inp,gp)
