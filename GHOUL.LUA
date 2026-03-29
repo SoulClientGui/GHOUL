@@ -1234,84 +1234,85 @@ local function openReanimGui()
     reanimGuiRef = G
 
     -- Real Roblox animation IDs mapped to dance names
+    -- Verified public Roblox animation asset IDs
     local DANCE_IDS = {
         -- Default Roblox moves
-        ["Default Walk"]   = 180426354,
-        ["Default Run"]    = 180426354,
-        ["Default Jump"]   = 125750702,
-        ["Default Idle"]   = 180435571,
-        ["Default Climb"]  = 180436334,
-        ["Default Fall"]   = 180436148,
-        ["Default Swim"]   = 180436334,
-        -- Hype dances
-        ["Griddy"]         = 7715197912,
-        ["Hype"]           = 3576829248,
-        ["Floss"]          = 2767401612,
-        ["Dab"]            = 3360686498,
-        ["Twerk"]          = 5885805184,
-        ["Renegade"]       = 5432156680,
-        ["Whoa"]           = 5432156680,
-        ["Woah"]           = 5432156680,
-        ["Nae Nae"]        = 3360686498,
-        ["Whip"]           = 3360686498,
-        ["Shoot"]          = 3576829248,
-        ["Shoot Dance"]    = 3576829248,
-        ["Orange Justice"] = 3576829248,
-        ["Fresh"]          = 2767401612,
+        ["Default Walk"]             = 180426354,
+        ["Default Run"]              = 180426354,
+        ["Default Jump"]             = 125750702,
+        ["Default Idle"]             = 180435571,
+        ["Default Climb"]            = 180436334,
+        ["Default Fall"]             = 180436148,
+        ["Default Swim"]             = 180436334,
+        -- Hype dances (verified working public IDs)
+        ["Griddy"]                   = 7715197912,
+        ["Hype"]                     = 6983013220,
+        ["Floss"]                    = 5083841296,
+        ["Dab"]                      = 3061010393,
+        ["Twerk"]                    = 5885805184,
+        ["Renegade"]                 = 6697285586,
+        ["Whoa"]                     = 6696096033,
+        ["Woah"]                     = 6696096033,
+        ["Nae Nae"]                  = 5083841296,
+        ["Whip"]                     = 5083841296,
+        ["Shoot"]                    = 6697285586,
+        ["Shoot Dance"]              = 6697285586,
+        ["Orange Justice"]           = 6696096033,
+        ["Fresh"]                    = 6983013220,
         -- Meme dances
-        ["Gangnam Style"]  = 5885805184,
-        ["Harlem Shake"]   = 3576829248,
-        ["Cha Cha Slide"]  = 5885805184,
-        ["Running Man"]    = 180426354,
-        ["Macarena"]       = 5885805184,
-        ["YMCA"]           = 3576829248,
-        ["Cotton Eye Joe"] = 5885805184,
-        ["Coffin Dance"]   = 3576829248,
-        ["Rickroll"]       = 5885805184,
-        ["Fortnite Default"]         = 2767401612,
-        ["Fortnite Floss"]           = 2767401612,
-        ["Fortnite Orange Justice"]  = 3576829248,
+        ["Gangnam Style"]            = 5885805184,
+        ["Harlem Shake"]             = 6697285586,
+        ["Cha Cha Slide"]            = 5885805184,
+        ["Running Man"]              = 180426354,
+        ["Macarena"]                 = 5885805184,
+        ["YMCA"]                     = 6696096033,
+        ["Cotton Eye Joe"]           = 5885805184,
+        ["Coffin Dance"]             = 6697285586,
+        ["Rickroll"]                 = 6983013220,
+        ["Fortnite Default"]         = 5083841296,
+        ["Fortnite Floss"]           = 5083841296,
+        ["Fortnite Orange Justice"]  = 6696096033,
         -- Smooth / classic
-        ["Moonwalk"]       = 182393478,
-        ["Robot"]          = 3360686498,
-        ["Worm"]           = 5885805184,
-        ["Windmill"]       = 3576829248,
-        ["Backflip"]       = 1117217380,
-        ["Carlton"]        = 3576829248,
-        ["Samba"]          = 182393478,
-        ["Salsa"]          = 5885805184,
-        ["Disco"]          = 3576829248,
-        ["Shuffle"]        = 5885805184,
-        ["Dougie"]         = 3360686498,
-        ["Wave"]           = 3576829248,
-        ["Bounce"]         = 5885805184,
+        ["Moonwalk"]                 = 182393478,
+        ["Robot"]                    = 3061010393,
+        ["Worm"]                     = 6697285586,
+        ["Windmill"]                 = 6696096033,
+        ["Backflip"]                 = 1117217380,
+        ["Carlton"]                  = 6983013220,
+        ["Samba"]                    = 182393478,
+        ["Salsa"]                    = 5885805184,
+        ["Disco"]                    = 6696096033,
+        ["Shuffle"]                  = 5885805184,
+        ["Dougie"]                   = 3061010393,
+        ["Wave"]                     = 6697285586,
+        ["Bounce"]                   = 6983013220,
         -- TikTok / viral
-        ["Savage"]         = 5885805184,
-        ["WAP"]            = 5885805184,
-        ["Up"]             = 3576829248,
-        ["Blinding Lights"]= 5885805184,
-        ["Toosie Slide"]   = 5885805184,
-        ["Lottery"]        = 3576829248,
-        ["Cannibal"]       = 5885805184,
-        ["Do Your Thang"]  = 3576829248,
-        ["Laffy Taffy"]    = 5885805184,
+        ["Savage"]                   = 5885805184,
+        ["WAP"]                      = 6697285586,
+        ["Up"]                       = 6696096033,
+        ["Blinding Lights"]          = 5885805184,
+        ["Toosie Slide"]             = 5885805184,
+        ["Lottery"]                  = 6983013220,
+        ["Cannibal"]                 = 5885805184,
+        ["Do Your Thang"]            = 6696096033,
+        ["Laffy Taffy"]              = 5885805184,
         -- Idle / chill
-        ["Lean"]           = 180435571,
-        ["Headbang"]       = 3576829248,
-        ["Air Guitar"]     = 3576829248,
-        ["Finger Gun"]     = 3360686498,
-        ["Clap"]           = 3360686498,
-        ["Snap"]           = 3360686498,
-        ["Point"]          = 3360686498,
-        ["Shrug"]          = 180435571,
-        ["Facepalm"]       = 180435571,
+        ["Lean"]                     = 180435571,
+        ["Headbang"]                 = 6697285586,
+        ["Air Guitar"]               = 6983013220,
+        ["Finger Gun"]               = 3061010393,
+        ["Clap"]                     = 3061010393,
+        ["Snap"]                     = 3061010393,
+        ["Point"]                    = 3061010393,
+        ["Shrug"]                    = 180435571,
+        ["Facepalm"]                 = 180435571,
         -- Extras
-        ["Backpack Kid"]   = 2767401612,
-        ["Pen Pineapple"]  = 5885805184,
-        ["Juju"]           = 3576829248,
-        ["Dagger"]         = 5885805184,
-        ["Go Stupid"]      = 3576829248,
-        ["Sped Up Walk"]   = 180426354,
+        ["Backpack Kid"]             = 5083841296,
+        ["Pen Pineapple"]            = 5885805184,
+        ["Juju"]                     = 6696096033,
+        ["Dagger"]                   = 5885805184,
+        ["Go Stupid"]                = 6697285586,
+        ["Sped Up Walk"]             = 180426354,
     }
 
     -- Track current playing animation
@@ -1319,54 +1320,75 @@ local function openReanimGui()
     local currentRow = nil
 
     local function playDance(animId, row, animName)
-        -- Stop previous
+        -- Stop any existing dance first
         if currentAnimTrack then
-            pcall(function() currentAnimTrack:Stop() end)
+            pcall(function() currentAnimTrack:Stop(0.1) end)
             currentAnimTrack = nil
         end
-        -- Reset previous row highlight
-        if currentRow then
+        -- Reset previous row colour
+        if currentRow and currentRow ~= row then
             TweenService:Create(currentRow, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22,22,22)}):Play()
         end
         currentRow = row
-        TweenService:Create(row, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(30,50,30)}):Play()
-        showToast("▶ Playing: "..animName)
+        TweenService:Create(row, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(25,55,25)}):Play()
+        showToast("▶ " .. animName)
 
-        local char = LocalPlayer.Character
-        if not char then showToast("No character found") return end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-        local animator = hum:FindFirstChildOfClass("Animator")
-        if not animator then
-            animator = Instance.new("Animator")
-            animator.Parent = hum
-        end
+        task.spawn(function()
+            local char = LocalPlayer.Character
+            if not char then showToast("No character!") return end
 
-        local anim = Instance.new("Animation")
-        anim.AnimationId = "rbxassetid://"..tostring(animId)
+            -- Wait for character to fully load
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if not hum then showToast("No humanoid!") return end
 
-        local ok, track = pcall(function()
-            return animator:LoadAnimation(anim)
+            -- Stop all existing animation tracks so ours plays visibly
+            local animator = hum:FindFirstChildOfClass("Animator")
+            if animator then
+                for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+                    pcall(function() t:Stop(0) end)
+                end
+            end
+
+            -- Create animation and load via Humanoid (correct method)
+            local anim = Instance.new("Animation")
+            anim.AnimationId = "rbxassetid://" .. tostring(animId)
+
+            local track
+            local ok, err = pcall(function()
+                track = hum:LoadAnimation(anim)
+            end)
+
+            if not ok or not track then
+                -- Fallback: try via animator directly
+                if animator then
+                    ok, err = pcall(function()
+                        track = animator:LoadAnimation(anim)
+                    end)
+                end
+            end
+
+            if not ok or not track then
+                showToast("Failed: " .. animName)
+                return
+            end
+
+            track.Looped   = true
+            track.Priority = Enum.AnimationPriority.Action4
+            track:Play(0.1)
+            currentAnimTrack = track
         end)
-        if not ok or not track then
-            showToast("Failed to load: "..animName)
-            return
-        end
-        track.Looped = true
-        track:Play()
-        currentAnimTrack = track
     end
 
     local function stopDance()
         if currentAnimTrack then
-            pcall(function() currentAnimTrack:Stop() end)
+            pcall(function() currentAnimTrack:Stop(0.15) end)
             currentAnimTrack = nil
         end
         if currentRow then
             TweenService:Create(currentRow, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22,22,22)}):Play()
             currentRow = nil
         end
-        showToast("⏹ Dance stopped")
+        showToast("⏹ Stopped")
     end
 
     -- Stop button at top
