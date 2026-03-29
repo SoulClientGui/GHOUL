@@ -43,6 +43,8 @@ local COMMANDS = {
     { cat = "PLAYER",   key = ";tp",        desc = "Teleport to a player" },
     { cat = "PLAYER",   key = ";bring",     desc = "Bring a player to you (client)" },
     { cat = "PLAYER",   key = ";emotes",    desc = "Open emotes menu" },
+    { cat = "PLAYER",   key = ";facepalm",  desc = "Fall forward [T key]" },
+    { cat = "PLAYER",   key = ";timereverse", desc = "Reverse facepalm [Z key]" },
     { cat = "VISUAL",   key = ";esp",       desc = "Toggle player ESP outlines" },
     { cat = "VISUAL",   key = ";box",       desc = "Toggle box ESP" },
     { cat = "VISUAL",   key = ";chams",     desc = "Toggle tracers + name tags" },
@@ -375,11 +377,37 @@ local function makeBtn(parent, yPos, xPos, text, width, height)
     return Btn
 end
 
--- Player list picker (returns a frame with scrollable player buttons, calls callback(player))
+-- Searchable player list picker
 local function makePlayerList(parent, yPos, bodyHeight, callback)
+    -- Search bar
+    local SFrame = Instance.new("Frame")
+    SFrame.Size = UDim2.new(1,-28,0,30)
+    SFrame.Position = UDim2.new(0,14,0,yPos)
+    SFrame.BackgroundColor3 = Color3.fromRGB(22,22,22)
+    SFrame.ZIndex = 52
+    SFrame.Parent = parent
+    makeCorner(SFrame, 7)
+    makeStroke(SFrame, Color3.fromRGB(50,50,50), 1)
+
+    local SearchBox = Instance.new("TextBox")
+    SearchBox.Size = UDim2.new(1,-14,1,0)
+    SearchBox.Position = UDim2.new(0,8,0,0)
+    SearchBox.BackgroundTransparency = 1
+    SearchBox.PlaceholderText = "Search player..."
+    SearchBox.PlaceholderColor3 = Color3.fromRGB(75,75,75)
+    SearchBox.Text = ""
+    SearchBox.TextColor3 = Color3.fromRGB(210,210,210)
+    SearchBox.Font = Enum.Font.Gotham
+    SearchBox.TextSize = 12
+    SearchBox.TextXAlignment = Enum.TextXAlignment.Left
+    SearchBox.ClearTextOnFocus = false
+    SearchBox.ZIndex = 53
+    SearchBox.Parent = SFrame
+
+    -- Player scroll list below search
     local Scroll = Instance.new("ScrollingFrame")
     Scroll.Size = UDim2.new(1,-28,0,bodyHeight)
-    Scroll.Position = UDim2.new(0,14,0,yPos)
+    Scroll.Position = UDim2.new(0,14,0,yPos+34)
     Scroll.BackgroundColor3 = Color3.fromRGB(20,20,20)
     Scroll.BorderSizePixel = 0
     Scroll.ScrollBarThickness = 3
@@ -396,40 +424,41 @@ local function makePlayerList(parent, yPos, bodyHeight, callback)
     Layout.Padding = UDim.new(0,2)
     Layout.Parent = Scroll
 
-    local function refresh()
+    local function refresh(filter)
         for _,c in ipairs(Scroll:GetChildren()) do
             if c:IsA("TextButton") then c:Destroy() end
         end
+        local q = (filter or ""):lower()
         for i, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
-                local Btn = Instance.new("TextButton")
-                Btn.Size = UDim2.new(1,0,0,32)
-                Btn.BackgroundColor3 = Color3.fromRGB(28,28,28)
-                Btn.Text = plr.DisplayName.." (@"..plr.Name..")"
-                Btn.TextColor3 = Color3.fromRGB(210,210,210)
-                Btn.Font = Enum.Font.Gotham
-                Btn.TextSize = 12
-                Btn.BorderSizePixel = 0
-                Btn.ZIndex = 53
-                Btn.LayoutOrder = i
-                Btn.Parent = Scroll
-                makeCorner(Btn, 6)
-                Btn.MouseEnter:Connect(function()
-                    Btn.BackgroundColor3 = Color3.fromRGB(40,40,40)
-                end)
-                Btn.MouseLeave:Connect(function()
+                local name = plr.DisplayName.." (@"..plr.Name..")"
+                if q == "" or plr.Name:lower():find(q,1,true) or plr.DisplayName:lower():find(q,1,true) then
+                    local Btn = Instance.new("TextButton")
+                    Btn.Size = UDim2.new(1,0,0,32)
                     Btn.BackgroundColor3 = Color3.fromRGB(28,28,28)
-                end)
-                Btn.MouseButton1Click:Connect(function()
-                    callback(plr)
-                end)
+                    Btn.Text = name
+                    Btn.TextColor3 = Color3.fromRGB(210,210,210)
+                    Btn.Font = Enum.Font.Gotham
+                    Btn.TextSize = 12
+                    Btn.BorderSizePixel = 0
+                    Btn.ZIndex = 53
+                    Btn.LayoutOrder = i
+                    Btn.Parent = Scroll
+                    makeCorner(Btn, 6)
+                    Btn.MouseEnter:Connect(function() Btn.BackgroundColor3 = Color3.fromRGB(40,40,40) end)
+                    Btn.MouseLeave:Connect(function() Btn.BackgroundColor3 = Color3.fromRGB(28,28,28) end)
+                    Btn.MouseButton1Click:Connect(function() callback(plr) end)
+                end
             end
         end
     end
+
     refresh()
-    -- Refresh button
-    local RefBtn = makeBtn(parent, yPos+bodyHeight+6, 14, "↻ Refresh", 80, 26)
-    RefBtn.MouseButton1Click:Connect(refresh)
+    SearchBox:GetPropertyChangedSignal("Text"):Connect(function() refresh(SearchBox.Text) end)
+
+    -- Refresh button sits below the scroll
+    local RefBtn = makeBtn(parent, yPos+34+bodyHeight+6, 14, "↻ Refresh", 80, 26)
+    RefBtn.MouseButton1Click:Connect(function() refresh(SearchBox.Text) end)
     return Scroll
 end
 
@@ -604,16 +633,15 @@ end
 local orbitGuiRef = nil
 local function openOrbitGui()
     if orbitGuiRef then orbitGuiRef:Destroy() orbitGuiRef=nil end
-    local G, Body = buildMiniGui("Orbit", 260, 190, 320, 180)
+    local G, Body = buildMiniGui("Orbit", 270, 240, 320, 180)
     orbitGuiRef = G
     local orbitAngle = 0
     local orbitRadius = 10
 
-    -- Player list
     local selectedPlayer = nil
     local SelLbl = Instance.new("TextLabel")
-    SelLbl.Size = UDim2.new(1,-28,0,20)
-    SelLbl.Position = UDim2.new(0,14,0,8)
+    SelLbl.Size = UDim2.new(1,-28,0,18)
+    SelLbl.Position = UDim2.new(0,14,0,6)
     SelLbl.BackgroundTransparency = 1
     SelLbl.Text = "Select a player:"
     SelLbl.TextColor3 = Color3.fromRGB(160,160,160)
@@ -623,14 +651,16 @@ local function openOrbitGui()
     SelLbl.ZIndex = 52
     SelLbl.Parent = Body
 
-    makePlayerList(Body, 32, 80, function(plr)
+    -- search bar at y=26, list height=70, refresh btn auto-placed
+    makePlayerList(Body, 26, 70, function(plr)
         selectedPlayer = plr
         SelLbl.Text = "Target: "..plr.DisplayName
     end)
 
-    local _, getSpd = makeSlider(Body, 128, "Orbit Speed", 10, 200, 60)
+    -- slider and button sit below: 26+30(search)+70(list)+32(refresh)+8gap = 166
+    local _, getSpd = makeSlider(Body, 168, "Orbit Speed", 10, 200, 60)
 
-    local OBtn = makeBtn(Body, 152, 14, orbitActive and "Stop Orbit" or "Start Orbit", 232)
+    local OBtn = makeBtn(Body, 192, 14, orbitActive and "Stop Orbit" or "Start Orbit", 242)
     OBtn.MouseButton1Click:Connect(function()
         orbitActive = not orbitActive
         OBtn.Text = orbitActive and "Stop Orbit" or "Start Orbit"
@@ -638,8 +668,7 @@ local function openOrbitGui()
         if orbitActive then
             orbitConn = RunService.Heartbeat:Connect(function(dt)
                 if not orbitActive then
-                    if orbitConn then orbitConn:Disconnect() orbitConn=nil end
-                    return
+                    if orbitConn then orbitConn:Disconnect() orbitConn=nil end; return
                 end
                 local target = selectedPlayer
                 if not target or not target.Character then return end
@@ -650,22 +679,19 @@ local function openOrbitGui()
                 orbitAngle = orbitAngle + dt * (getSpd() / 30)
                 local x = tHRP.Position.X + math.cos(orbitAngle) * orbitRadius
                 local z = tHRP.Position.Z + math.sin(orbitAngle) * orbitRadius
-                local y = tHRP.Position.Y + 0
+                local y = tHRP.Position.Y
                 if myHum then myHum.PlatformStand = true end
                 myHRP.CFrame = CFrame.new(x, y, z)
             end)
         else
             if orbitConn then orbitConn:Disconnect() orbitConn=nil end
-            local myChar = LocalPlayer.Character
-            if myChar then
-                local hum = myChar:FindFirstChildOfClass("Humanoid")
-                if hum then hum.PlatformStand=false end
-            end
+            local mc = LocalPlayer.Character
+            if mc then local h=mc:FindFirstChildOfClass("Humanoid"); if h then h.PlatformStand=false end end
         end
     end)
     G.AncestryChanged:Connect(function()
         if not G.Parent then
-            orbitActive=false
+            orbitActive = false
             if orbitConn then orbitConn:Disconnect() orbitConn=nil end
             local mc=LocalPlayer.Character
             if mc then local h=mc:FindFirstChildOfClass("Humanoid"); if h then h.PlatformStand=false end end
@@ -676,46 +702,38 @@ end
 -- ── FLING ────────────────────────────────────────────────────
 local function toggleFling()
     flingActive = not flingActive
-    showToast(flingActive and "Fling  ON" or "Fling  OFF")
+    showToast(flingActive and "Fling  ON  —  walk near players" or "Fling  OFF")
     if flingActive then
-        local char = LocalPlayer.Character; if not char then flingActive=false return end
-        local hrp = char:FindFirstChild("HumanoidRootPart"); if not hrp then flingActive=false return end
-
-        -- Spin self
-        local BA = Instance.new("BodyAngularVelocity")
-        BA.AngularVelocity = Vector3.new(0, 9999, 0)
-        BA.MaxTorque = Vector3.new(0, 9999, 0)
-        BA.Parent = hrp
-
         flingConn = RunService.Heartbeat:Connect(function()
             if not flingActive then
-                pcall(function() BA:Destroy() end)
                 if flingConn then flingConn:Disconnect() flingConn=nil end
                 return
             end
             local myChar = LocalPlayer.Character; if not myChar then return end
             local myHRP = myChar:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
-            -- Fling nearby players
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
                     local tHRP = plr.Character:FindFirstChild("HumanoidRootPart")
-                    if tHRP and (tHRP.Position - myHRP.Position).Magnitude < 8 then
-                        local BV2 = Instance.new("BodyVelocity")
-                        BV2.Velocity = (tHRP.Position - myHRP.Position).Unit * 500 + Vector3.new(0, 200, 0)
-                        BV2.MaxForce = Vector3.new(1e6,1e6,1e6)
-                        BV2.Parent = tHRP
-                        game:GetService("Debris"):AddItem(BV2, 0.15)
+                    if tHRP and (tHRP.Position - myHRP.Position).Magnitude < 12 then
+                        -- Remove any existing fling velocity to avoid stacking
+                        for _, v in ipairs(tHRP:GetChildren()) do
+                            if v.Name == "GhoulFlingBV" then v:Destroy() end
+                        end
+                        local dir = (tHRP.Position - myHRP.Position)
+                        if dir.Magnitude < 0.1 then dir = Vector3.new(1,0,0) end
+                        dir = dir.Unit
+                        local BV = Instance.new("BodyVelocity")
+                        BV.Name = "GhoulFlingBV"
+                        BV.Velocity = dir * 800 + Vector3.new(0, 250, 0)
+                        BV.MaxForce = Vector3.new(1e7, 1e7, 1e7)
+                        BV.Parent = tHRP
+                        game:GetService("Debris"):AddItem(BV, 0.12)
                     end
                 end
             end
         end)
     else
         if flingConn then flingConn:Disconnect() flingConn=nil end
-        local char=LocalPlayer.Character
-        if char then
-            local hrp=char:FindFirstChild("HumanoidRootPart")
-            if hrp then for _,v in ipairs(hrp:GetChildren()) do if v:IsA("BodyAngularVelocity") then v:Destroy() end end end
-        end
     end
 end
 
@@ -723,13 +741,13 @@ end
 local walktoGuiRef = nil
 local function openWalktoGui()
     if walktoGuiRef then walktoGuiRef:Destroy() walktoGuiRef=nil end
-    local G, Body = buildMiniGui("Walk To", 260, 190, 260, 220)
+    local G, Body = buildMiniGui("Walk To", 270, 240, 260, 220)
     walktoGuiRef = G
     local selectedPlayer = nil
 
     local SelLbl = Instance.new("TextLabel")
-    SelLbl.Size = UDim2.new(1,-28,0,20)
-    SelLbl.Position = UDim2.new(0,14,0,8)
+    SelLbl.Size = UDim2.new(1,-28,0,18)
+    SelLbl.Position = UDim2.new(0,14,0,6)
     SelLbl.BackgroundTransparency = 1
     SelLbl.Text = "Select a player:"
     SelLbl.TextColor3 = Color3.fromRGB(160,160,160)
@@ -739,14 +757,14 @@ local function openWalktoGui()
     SelLbl.ZIndex = 52
     SelLbl.Parent = Body
 
-    makePlayerList(Body, 32, 80, function(plr)
+    makePlayerList(Body, 26, 70, function(plr)
         selectedPlayer = plr
         SelLbl.Text = "Target: "..plr.DisplayName
     end)
 
-    local _, getSpd = makeSlider(Body, 128, "Follow Speed", 60, 600, 100)
+    local _, getSpd = makeSlider(Body, 168, "Follow Speed", 60, 600, 100)
 
-    local WBtn = makeBtn(Body, 152, 14, walktoActive and "Stop Following" or "Start Following", 232)
+    local WBtn = makeBtn(Body, 192, 14, walktoActive and "Stop Following" or "Start Following", 242)
     WBtn.MouseButton1Click:Connect(function()
         walktoActive = not walktoActive
         WBtn.Text = walktoActive and "Stop Following" or "Start Following"
@@ -763,7 +781,6 @@ local function openWalktoGui()
                 local tHRP = selectedPlayer.Character:FindFirstChild("HumanoidRootPart"); if not tHRP then return end
                 local myChar = LocalPlayer.Character; if not myChar then return end
                 local myHum = myChar:FindFirstChildOfClass("Humanoid"); if not myHum then return end
-                local myHRP = myChar:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
                 myHum.WalkSpeed = getSpd()
                 myHum:MoveTo(tHRP.Position)
             end)
@@ -818,6 +835,101 @@ local function doHeal()
     showToast("Healed to full HP")
 end
 
+-- ── FACEPALM (T key) — fall forward ──────────────────────────
+local facepalmActive   = false
+local facepalmConn     = nil
+local facepalmAnimTrack = nil
+
+local function toggleFacepalm()
+    facepalmActive = not facepalmActive
+    showToast(facepalmActive and "Facepalm  ON  [T = fall forward]" or "Facepalm  OFF")
+
+    if facepalmActive then
+        -- T key listener
+        facepalmConn = UserInputService.InputBegan:Connect(function(inp, gp)
+            if gp and UserInputService:GetFocusedTextBox() then return end
+            if inp.KeyCode ~= Enum.KeyCode.T then return end
+            if not facepalmActive then return end
+
+            local char = LocalPlayer.Character; if not char then return end
+            local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+            local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+            local animator = hum:FindFirstChildOfClass("Animator"); if not animator then return end
+
+            -- Stop existing tracks
+            for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+                pcall(function() t:Stop(0) end)
+            end
+
+            -- Tip character forward by changing CFrame rotation
+            -- Use PlatformStand so physics doesn't fight us
+            hum.PlatformStand = true
+
+            -- Animate falling forward over 0.4 seconds using tween on CFrame
+            local startCF = hrp.CFrame
+            local targetCF = startCF * CFrame.Angles(math.rad(90), 0, 0)
+
+            TweenService:Create(hrp, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                CFrame = targetCF
+            }):Play()
+
+            showToast("😑 Facepalm!")
+        end)
+    else
+        if facepalmConn then facepalmConn:Disconnect() facepalmConn = nil end
+        -- Stand back up
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.PlatformStand = false end
+        end
+    end
+end
+
+-- ── TIME REVERSE (Z key) — stand back up ─────────────────────
+local timeReverseActive = false
+local timeReverseConn   = nil
+
+local function toggleTimeReverse()
+    timeReverseActive = not timeReverseActive
+    showToast(timeReverseActive and "Time Reverse  ON  [Z = stand up]" or "Time Reverse  OFF")
+
+    if timeReverseActive then
+        timeReverseConn = UserInputService.InputBegan:Connect(function(inp, gp)
+            if gp and UserInputService:GetFocusedTextBox() then return end
+            if inp.KeyCode ~= Enum.KeyCode.Z then return end
+            if not timeReverseActive then return end
+
+            local char = LocalPlayer.Character; if not char then return end
+            local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+            local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+
+            -- Reverse: stand upright again
+            local currentCF = hrp.CFrame
+            -- Strip rotation, keep position
+            local pos = currentCF.Position
+            local uprightCF = CFrame.new(pos) * CFrame.Angles(0, currentCF:ToEulerAnglesYXZ(), 0)
+
+            -- Just slam upright instantly via a quick tween
+            TweenService:Create(hrp, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+                    * CFrame.Angles(0, select(2, currentCF:ToEulerAnglesYXZ()), 0)
+            }):Play()
+
+            task.delay(0.35, function()
+                if hum then
+                    hum.PlatformStand = false
+                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+            end)
+
+            showToast("⏪ Time Reversed!")
+        end)
+    else
+        if timeReverseConn then timeReverseConn:Disconnect() timeReverseConn = nil end
+    end
+end
+
 -- ── KILL ─────────────────────────────────────────────────────
 local killGuiRef = nil
 local function openKillGui()
@@ -858,13 +970,13 @@ end
 local tpGuiRef = nil
 local function openTpGui()
     if tpGuiRef then tpGuiRef:Destroy() tpGuiRef=nil end
-    local G, Body = buildMiniGui("Teleport To", 260, 150, 280, 200)
+    local G, Body = buildMiniGui("Teleport To", 270, 200, 280, 200)
     tpGuiRef = G
     local selectedPlayer = nil
 
     local SelLbl = Instance.new("TextLabel")
-    SelLbl.Size = UDim2.new(1,-28,0,20)
-    SelLbl.Position = UDim2.new(0,14,0,8)
+    SelLbl.Size = UDim2.new(1,-28,0,18)
+    SelLbl.Position = UDim2.new(0,14,0,6)
     SelLbl.BackgroundTransparency = 1
     SelLbl.Text = "Select a player:"
     SelLbl.TextColor3 = Color3.fromRGB(160,160,160)
@@ -874,12 +986,12 @@ local function openTpGui()
     SelLbl.ZIndex = 52
     SelLbl.Parent = Body
 
-    makePlayerList(Body, 32, 80, function(plr)
+    makePlayerList(Body, 26, 80, function(plr)
         selectedPlayer = plr
         SelLbl.Text = "Target: "..plr.DisplayName
     end)
 
-    local TBtn = makeBtn(Body, 120, 14, "Teleport", 232)
+    local TBtn = makeBtn(Body, 170, 14, "Teleport", 242)
     TBtn.MouseButton1Click:Connect(function()
         if not selectedPlayer or not selectedPlayer.Character then showToast("No player selected") return end
         local tHRP = selectedPlayer.Character:FindFirstChild("HumanoidRootPart"); if not tHRP then return end
@@ -1770,6 +1882,8 @@ local function setupChatListener()
         elseif msg == ";tp"       then openTpGui()
         elseif msg == ";bring"    then openBringGui()
         elseif msg == ";emotes"   then loadEmotes()
+        elseif msg == ";facepalm" then toggleFacepalm()
+        elseif msg == ";timereverse" then toggleTimeReverse()
         elseif msg == ";esp"      then toggleESP()
         elseif msg == ";box"      then toggleBox()
         elseif msg == ";chams"    then toggleChams()
@@ -1830,6 +1944,8 @@ local cmdActions = {
     [";tp"]         = openTpGui,
     [";bring"]      = openBringGui,
     [";emotes"]     = loadEmotes,
+    [";facepalm"]   = toggleFacepalm,
+    [";timereverse"]= toggleTimeReverse,
     [";esp"]        = toggleESP,
     [";box"]        = toggleBox,
     [";chams"]      = toggleChams,
