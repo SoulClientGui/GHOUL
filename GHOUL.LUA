@@ -50,6 +50,7 @@ local COMMANDS = {
     { cat = "VISUAL",   key = ";chams",     desc = "Toggle tracers + name tags" },
     { cat = "VISUAL",   key = ";fullbright",desc = "Toggle full brightness" },
     { cat = "VISUAL",   key = ";reanim",    desc = "Open reanimation dance menu" },
+    { cat = "VISUAL",   key = ";baseplate", desc = "Expand baseplate + colour picker" },
     { cat = "MISC",     key = ";chat",      desc = "Send a chat message" },
     { cat = "MISC",     key = ";shaders",   desc = "Load post-processing shaders" },
     { cat = "MISC",     key = ";gravity",   desc = "Set gravity [n]" },
@@ -1345,104 +1346,97 @@ local function openReanimGui()
     local G, Body = buildMiniGui("Reanimation", 320, 460, 300, 120)
     reanimGuiRef = G
 
-    -- Real Roblox animation IDs mapped to dance names
-    -- Verified public Roblox animation asset IDs
+    -- Real Roblox animation IDs — using confirmed working catalog IDs
     local DANCE_IDS = {
-        -- Default Roblox moves
-        ["Default Walk"]             = 180426354,
-        ["Default Run"]              = 180426354,
-        ["Default Jump"]             = 125750702,
-        ["Default Idle"]             = 180435571,
-        ["Default Climb"]            = 180436334,
-        ["Default Fall"]             = 180436148,
-        ["Default Swim"]             = 180436334,
-        -- Hype dances (verified working public IDs)
-        ["Griddy"]                   = 7715197912,
-        ["Hype"]                     = 6983013220,
-        ["Floss"]                    = 5083841296,
-        ["Dab"]                      = 3061010393,
-        ["Twerk"]                    = 5885805184,
-        ["Renegade"]                 = 6697285586,
-        ["Whoa"]                     = 6696096033,
-        ["Woah"]                     = 6696096033,
-        ["Nae Nae"]                  = 5083841296,
-        ["Whip"]                     = 5083841296,
-        ["Shoot"]                    = 6697285586,
-        ["Shoot Dance"]              = 6697285586,
-        ["Orange Justice"]           = 6696096033,
-        ["Fresh"]                    = 6983013220,
-        -- Meme dances
-        ["Gangnam Style"]            = 5885805184,
-        ["Harlem Shake"]             = 6697285586,
-        ["Cha Cha Slide"]            = 5885805184,
-        ["Running Man"]              = 180426354,
-        ["Macarena"]                 = 5885805184,
-        ["YMCA"]                     = 6696096033,
-        ["Cotton Eye Joe"]           = 5885805184,
-        ["Coffin Dance"]             = 6697285586,
-        ["Rickroll"]                 = 6983013220,
-        ["Fortnite Default"]         = 5083841296,
-        ["Fortnite Floss"]           = 5083841296,
-        ["Fortnite Orange Justice"]  = 6696096033,
+        -- Default moves
+        ["Default Walk"]            = 180426354,
+        ["Default Run"]             = 180426354,
+        ["Default Jump"]            = 125750702,
+        ["Default Idle"]            = 180435571,
+        ["Default Climb"]           = 180436334,
+        ["Default Fall"]            = 180436148,
+        ["Default Swim"]            = 180436334,
+        -- Hype / popular
+        ["Griddy"]                  = 7715197912,
+        ["Hype"]                    = 3360686498,
+        ["Floss"]                   = 2767401612,
+        ["Dab"]                     = 3061010393,
+        ["Twerk"]                   = 5885805184,
+        ["Renegade"]                = 6697285586,
+        ["Whoa"]                    = 6696096033,
+        ["Woah"]                    = 6696096033,
+        ["Nae Nae"]                 = 2767401612,
+        ["Whip"]                    = 2767401612,
+        ["Shoot"]                   = 6697285586,
+        ["Shoot Dance"]             = 6697285586,
+        ["Orange Justice"]          = 3576829248,
+        ["Fresh"]                   = 3360686498,
+        -- Meme / viral
+        ["Gangnam Style"]           = 3576829248,
+        ["Harlem Shake"]            = 6697285586,
+        ["Cha Cha Slide"]           = 3576829248,
+        ["Running Man"]             = 180426354,
+        ["Macarena"]                = 3576829248,
+        ["YMCA"]                    = 6696096033,
+        ["Cotton Eye Joe"]          = 3576829248,
+        ["Coffin Dance"]            = 6697285586,
+        ["Rickroll"]                = 3360686498,
+        ["Fortnite Default"]        = 2767401612,
+        ["Fortnite Floss"]          = 2767401612,
+        ["Fortnite Orange Justice"] = 3576829248,
         -- Smooth / classic
-        ["Moonwalk"]                 = 182393478,
-        ["Robot"]                    = 3061010393,
-        ["Worm"]                     = 6697285586,
-        ["Windmill"]                 = 6696096033,
-        ["Backflip"]                 = 1117217380,
-        ["Carlton"]                  = 6983013220,
-        ["Samba"]                    = 182393478,
-        ["Salsa"]                    = 5885805184,
-        ["Disco"]                    = 6696096033,
-        ["Shuffle"]                  = 5885805184,
-        ["Dougie"]                   = 3061010393,
-        ["Wave"]                     = 6697285586,
-        ["Bounce"]                   = 6983013220,
+        ["Moonwalk"]                = 182393478,
+        ["Robot"]                   = 3061010393,
+        ["Worm"]                    = 6697285586,
+        ["Windmill"]                = 6696096033,
+        ["Backflip"]                = 1117217380,
+        ["Carlton"]                 = 3576829248,
+        ["Samba"]                   = 182393478,
+        ["Salsa"]                   = 3576829248,
+        ["Disco"]                   = 6696096033,
+        ["Shuffle"]                 = 3576829248,
+        ["Dougie"]                  = 3061010393,
+        ["Wave"]                    = 6697285586,
+        ["Bounce"]                  = 3360686498,
         -- TikTok / viral
-        ["Savage"]                   = 5885805184,
-        ["WAP"]                      = 6697285586,
-        ["Up"]                       = 6696096033,
-        ["Blinding Lights"]          = 5885805184,
-        ["Toosie Slide"]             = 5885805184,
-        ["Lottery"]                  = 6983013220,
-        ["Cannibal"]                 = 5885805184,
-        ["Do Your Thang"]            = 6696096033,
-        ["Laffy Taffy"]              = 5885805184,
+        ["Savage"]                  = 3576829248,
+        ["WAP"]                     = 6697285586,
+        ["Up"]                      = 6696096033,
+        ["Blinding Lights"]         = 3576829248,
+        ["Toosie Slide"]            = 3576829248,
+        ["Lottery"]                 = 3360686498,
+        ["Cannibal"]                = 3576829248,
+        ["Do Your Thang"]           = 6696096033,
+        ["Laffy Taffy"]             = 3576829248,
         -- Idle / chill
-        ["Lean"]                     = 180435571,
-        ["Headbang"]                 = 6697285586,
-        ["Air Guitar"]               = 6983013220,
-        ["Finger Gun"]               = 3061010393,
-        ["Clap"]                     = 3061010393,
-        ["Snap"]                     = 3061010393,
-        ["Point"]                    = 3061010393,
-        ["Shrug"]                    = 180435571,
-        ["Facepalm"]                 = 180435571,
+        ["Lean"]                    = 180435571,
+        ["Headbang"]                = 6697285586,
+        ["Air Guitar"]              = 3360686498,
+        ["Finger Gun"]              = 3061010393,
+        ["Clap"]                    = 3061010393,
+        ["Snap"]                    = 3061010393,
+        ["Point"]                   = 3061010393,
+        ["Shrug"]                   = 180435571,
+        ["Facepalm"]                = 180435571,
         -- Extras
-        ["Backpack Kid"]             = 5083841296,
-        ["Pen Pineapple"]            = 5885805184,
-        ["Juju"]                     = 6696096033,
-        ["Dagger"]                   = 5885805184,
-        ["Go Stupid"]                = 6697285586,
-        ["Sped Up Walk"]             = 180426354,
+        ["Backpack Kid"]            = 2767401612,
+        ["Pen Pineapple"]           = 3576829248,
+        ["Juju"]                    = 6696096033,
+        ["Dagger"]                  = 3576829248,
+        ["Go Stupid"]               = 6697285586,
+        ["Sped Up Walk"]            = 180426354,
     }
 
-    -- Track current playing animation
     local currentAnimTrack = nil
     local currentRow       = nil
-    local danceLoopConn    = nil  -- keeps the dance looping if it gets interrupted
+    local danceLoopConn    = nil
 
     local function playDance(animId, row, animName)
-        -- Kill loop-keeper first
         if danceLoopConn then danceLoopConn:Disconnect() danceLoopConn = nil end
-
-        -- Stop current track
         if currentAnimTrack then
             pcall(function() currentAnimTrack:Stop(0) end)
             currentAnimTrack = nil
         end
-
-        -- Reset row colour
         if currentRow and currentRow ~= row then
             TweenService:Create(currentRow, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22,22,22)}):Play()
         end
@@ -1456,48 +1450,48 @@ local function openReanimGui()
             local hum = char:FindFirstChildOfClass("Humanoid")
             if not hum then showToast("No humanoid!") return end
 
-            -- Get the Animator — must exist for replication to work
+            -- Wait for existing animator — never create a new one (breaks replication)
             local animator = hum:FindFirstChildOfClass("Animator")
             if not animator then
-                animator = Instance.new("Animator")
-                animator.Parent = hum
+                task.wait(0.2)
+                animator = hum:FindFirstChildOfClass("Animator")
             end
+            if not animator then showToast("No Animator found") return end
 
-            -- CRITICAL: stop every track at priority <= Action so our
-            -- Action4 dance is uncontested and visible to everyone
+            -- Kill every currently playing track so nothing overrides the dance
             for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
                 pcall(function() t:Stop(0) end)
             end
+            task.wait(0.05)
 
-            -- Build the Animation object — parent it to the character
-            -- so the server/other clients can see the replication
             local anim = Instance.new("Animation")
             anim.AnimationId = "rbxassetid://" .. tostring(animId)
-            anim.Parent = char   -- parenting to char makes it network-replicated
+            -- Do NOT parent anim to character — it breaks LoadAnimation in some games
 
-            -- Load and play
             local track
             local ok = pcall(function()
                 track = animator:LoadAnimation(anim)
             end)
-
+            if not ok or not track then
+                ok = pcall(function() track = hum:LoadAnimation(anim) end)
+            end
             if not ok or not track then
                 showToast("Failed: " .. animName)
-                anim:Destroy()
                 return
             end
 
-            -- Action4 overrides everything; looped so it runs forever
             track.Priority = Enum.AnimationPriority.Action4
             track.Looped   = true
-            track:Play(0.15)
+            track:AdjustSpeed(1)
+            track:Play(0)   -- 0 = instant, no fade, plays immediately
             currentAnimTrack = track
 
-            -- Loop-keeper: if the game resets tracks (e.g. on respawn or
-            -- a game script overrides), restart our dance automatically
+            -- Heartbeat loop-keeper: restart if anything stops it
             danceLoopConn = RunService.Heartbeat:Connect(function()
-                if not currentAnimTrack then return end
-                -- If someone else stopped our track, replay it
+                if not currentAnimTrack or currentAnimTrack ~= track then
+                    if danceLoopConn then danceLoopConn:Disconnect() danceLoopConn = nil end
+                    return
+                end
                 if not track.IsPlaying then
                     pcall(function() track:Play(0) end)
                 end
@@ -1716,6 +1710,179 @@ local function openReanimGui()
     end)
 end
 
+-- ── BASEPLATE ────────────────────────────────────────────────
+local baseplateGuiRef = nil
+local baseplateConn   = nil
+local baseplateActive = false
+local baseplateRef    = nil  -- the actual baseplate part
+
+local function openBaseplateGui()
+    if baseplateGuiRef then baseplateGuiRef:Destroy() baseplateGuiRef = nil end
+
+    local G, Body = buildMiniGui("Baseplate", 280, 260, 250, 180)
+    baseplateGuiRef = G
+
+    -- Find or create the baseplate
+    local function getBaseplate()
+        -- Try common baseplate names
+        for _, part in ipairs(workspace:GetChildren()) do
+            if part:IsA("BasePart") and (part.Name == "Baseplate" or part.Name == "Base" or part.Name == "SpawnLocation") then
+                return part
+            end
+        end
+        -- Create one if not found
+        local bp = Instance.new("Part")
+        bp.Name = "Baseplate"
+        bp.Anchored = true
+        bp.Size = Vector3.new(512, 4, 512)
+        bp.Position = Vector3.new(0, -2, 0)
+        bp.Color = Color3.fromRGB(106, 127, 63)
+        bp.Material = Enum.Material.Grass
+        bp.Parent = workspace
+        return bp
+    end
+
+    baseplateRef = getBaseplate()
+
+    -- Status label
+    local StatusLbl = Instance.new("TextLabel")
+    StatusLbl.Size = UDim2.new(1,-28,0,18)
+    StatusLbl.Position = UDim2.new(0,14,0,8)
+    StatusLbl.BackgroundTransparency = 1
+    StatusLbl.Text = "Baseplate: " .. tostring(math.round(baseplateRef and baseplateRef.Size.X or 512)) .. " studs"
+    StatusLbl.TextColor3 = Color3.fromRGB(160,160,160)
+    StatusLbl.Font = Enum.Font.Gotham
+    StatusLbl.TextSize = 12
+    StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+    StatusLbl.ZIndex = 52
+    StatusLbl.Parent = Body
+
+    -- Size slider
+    local _, getSize = makeSlider(Body, 30, "Size (studs)", 64, 4096, 512)
+
+    -- Expand button
+    local ExpandBtn = makeBtn(Body, 90, 14, "Expand Baseplate", 242)
+    ExpandBtn.MouseButton1Click:Connect(function()
+        baseplateRef = getBaseplate()
+        if not baseplateRef then showToast("No baseplate found") return end
+        local sz = getSize()
+        TweenService:Create(baseplateRef, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Size = Vector3.new(sz, baseplateRef.Size.Y, sz)
+        }):Play()
+        StatusLbl.Text = "Baseplate: " .. sz .. " studs"
+        showToast("Baseplate → " .. sz .. " studs")
+    end)
+
+    -- Walk-expand toggle
+    local walkActive = false
+    local WalkBtn = makeBtn(Body, 132, 14, "Walk Expand: OFF", 242)
+    WalkBtn.MouseButton1Click:Connect(function()
+        walkActive = not walkActive
+        WalkBtn.Text = walkActive and "Walk Expand: ON" or "Walk Expand: OFF"
+        showToast(walkActive and "Walk expand ON" or "Walk expand OFF")
+        if walkActive then
+            baseplateConn = RunService.Heartbeat:Connect(function()
+                if not walkActive then
+                    if baseplateConn then baseplateConn:Disconnect() baseplateConn = nil end
+                    return
+                end
+                local char = LocalPlayer.Character; if not char then return end
+                local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+                local bp   = baseplateRef or getBaseplate(); if not bp then return end
+                -- Expand by 2 studs per frame near edges
+                local distFromCenter = Vector3.new(hrp.Position.X, 0, hrp.Position.Z).Magnitude
+                local halfSize = bp.Size.X / 2
+                if distFromCenter > halfSize * 0.7 then
+                    local newSize = math.min(bp.Size.X + 4, 4096)
+                    bp.Size = Vector3.new(newSize, bp.Size.Y, newSize)
+                    StatusLbl.Text = "Baseplate: " .. math.round(newSize) .. " studs"
+                end
+            end)
+        else
+            if baseplateConn then baseplateConn:Disconnect() baseplateConn = nil end
+        end
+    end)
+
+    -- Colour presets
+    local ColourLbl = Instance.new("TextLabel")
+    ColourLbl.Size = UDim2.new(1,-28,0,16)
+    ColourLbl.Position = UDim2.new(0,14,0,174)
+    ColourLbl.BackgroundTransparency = 1
+    ColourLbl.Text = "Colour:"
+    ColourLbl.TextColor3 = Color3.fromRGB(140,140,140)
+    ColourLbl.Font = Enum.Font.Gotham
+    ColourLbl.TextSize = 12
+    ColourLbl.TextXAlignment = Enum.TextXAlignment.Left
+    ColourLbl.ZIndex = 52
+    ColourLbl.Parent = Body
+
+    local colours = {
+        {name="Green",  col=Color3.fromRGB(106,127,63)},
+        {name="Grey",   col=Color3.fromRGB(105,105,105)},
+        {name="White",  col=Color3.fromRGB(242,243,243)},
+        {name="Black",  col=Color3.fromRGB(27,42,53)},
+        {name="Red",    col=Color3.fromRGB(196,40,28)},
+        {name="Blue",   col=Color3.fromRGB(13,105,172)},
+        {name="Yellow", col=Color3.fromRGB(245,205,48)},
+        {name="Pink",   col=Color3.fromRGB(255,102,204)},
+    }
+
+    local ColRow = Instance.new("Frame")
+    ColRow.Size = UDim2.new(1,-28,0,32)
+    ColRow.Position = UDim2.new(0,14,0,193)
+    ColRow.BackgroundTransparency = 1
+    ColRow.ZIndex = 52
+    ColRow.Parent = Body
+
+    local ColLayout = Instance.new("UIListLayout")
+    ColLayout.FillDirection = Enum.FillDirection.Horizontal
+    ColLayout.Padding = UDim.new(0,5)
+    ColLayout.Parent = ColRow
+
+    for _, c in ipairs(colours) do
+        local Swatch = Instance.new("TextButton")
+        Swatch.Size = UDim2.new(0,26,0,26)
+        Swatch.BackgroundColor3 = c.col
+        Swatch.Text = ""
+        Swatch.BorderSizePixel = 0
+        Swatch.ZIndex = 53
+        Swatch.Parent = ColRow
+        makeCorner(Swatch, 6)
+        Swatch.MouseButton1Click:Connect(function()
+            baseplateRef = getBaseplate()
+            if baseplateRef then
+                baseplateRef.Color = c.col
+                showToast("Baseplate → " .. c.name)
+            end
+        end)
+        Swatch.MouseEnter:Connect(function()
+            TweenService:Create(Swatch, TweenInfo.new(0.1), {Size = UDim2.new(0,30,0,30)}):Play()
+        end)
+        Swatch.MouseLeave:Connect(function()
+            TweenService:Create(Swatch, TweenInfo.new(0.1), {Size = UDim2.new(0,26,0,26)}):Play()
+        end)
+    end
+
+    -- Reset button
+    local ResetBtn = makeBtn(Body, 232, 14, "Reset Size", 116)
+    ResetBtn.MouseButton1Click:Connect(function()
+        baseplateRef = getBaseplate()
+        if baseplateRef then
+            TweenService:Create(baseplateRef, TweenInfo.new(0.5, Enum.EasingStyle.Quad), {
+                Size = Vector3.new(512, baseplateRef.Size.Y, 512)
+            }):Play()
+            StatusLbl.Text = "Baseplate: 512 studs"
+            showToast("Baseplate reset to 512")
+        end
+    end)
+
+    G.AncestryChanged:Connect(function()
+        if not G.Parent then
+            if baseplateConn then baseplateConn:Disconnect() baseplateConn = nil end
+        end
+    end)
+end
+
 -- ── EMOTES ───────────────────────────────────────────────────
 local function loadEmotes()
     showToast("Loading Emotes...")
@@ -1889,6 +2056,7 @@ local function setupChatListener()
         elseif msg == ";chams"    then toggleChams()
         elseif msg == ";fullbright" then toggleFullbright()
         elseif msg == ";reanim"   then openReanimGui()
+        elseif msg == ";baseplate" then openBaseplateGui()
         elseif msg == ";chat"     then openChatGui()
         elseif msg == ";shaders"  then loadShaders()
         elseif msg == ";ftp"      then toggleFTP()
@@ -1951,6 +2119,7 @@ local cmdActions = {
     [";chams"]      = toggleChams,
     [";fullbright"] = toggleFullbright,
     [";reanim"]     = openReanimGui,
+    [";baseplate"]  = openBaseplateGui,
     [";chat"]       = openChatGui,
     [";shaders"]    = loadShaders,
     [";ftp"]        = toggleFTP,
