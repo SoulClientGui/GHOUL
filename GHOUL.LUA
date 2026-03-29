@@ -1317,15 +1317,20 @@ local function openReanimGui()
 
     -- Track current playing animation
     local currentAnimTrack = nil
-    local currentRow = nil
+    local currentRow       = nil
+    local danceLoopConn    = nil  -- keeps the dance looping if it gets interrupted
 
     local function playDance(animId, row, animName)
-        -- Stop any existing dance first
+        -- Kill loop-keeper first
+        if danceLoopConn then danceLoopConn:Disconnect() danceLoopConn = nil end
+
+        -- Stop current track
         if currentAnimTrack then
-            pcall(function() currentAnimTrack:Stop(0.1) end)
+            pcall(function() currentAnimTrack:Stop(0) end)
             currentAnimTrack = nil
         end
-        -- Reset previous row colour
+
+        -- Reset row colour
         if currentRow and currentRow ~= row then
             TweenService:Create(currentRow, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22,22,22)}):Play()
         end
@@ -1336,50 +1341,60 @@ local function openReanimGui()
         task.spawn(function()
             local char = LocalPlayer.Character
             if not char then showToast("No character!") return end
-
-            -- Wait for character to fully load
             local hum = char:FindFirstChildOfClass("Humanoid")
             if not hum then showToast("No humanoid!") return end
 
-            -- Stop all existing animation tracks so ours plays visibly
+            -- Get the Animator — must exist for replication to work
             local animator = hum:FindFirstChildOfClass("Animator")
-            if animator then
-                for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
-                    pcall(function() t:Stop(0) end)
-                end
+            if not animator then
+                animator = Instance.new("Animator")
+                animator.Parent = hum
             end
 
-            -- Create animation and load via Humanoid (correct method)
+            -- CRITICAL: stop every track at priority <= Action so our
+            -- Action4 dance is uncontested and visible to everyone
+            for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
+                pcall(function() t:Stop(0) end)
+            end
+
+            -- Build the Animation object — parent it to the character
+            -- so the server/other clients can see the replication
             local anim = Instance.new("Animation")
             anim.AnimationId = "rbxassetid://" .. tostring(animId)
+            anim.Parent = char   -- parenting to char makes it network-replicated
 
+            -- Load and play
             local track
-            local ok, err = pcall(function()
-                track = hum:LoadAnimation(anim)
+            local ok = pcall(function()
+                track = animator:LoadAnimation(anim)
             end)
 
             if not ok or not track then
-                -- Fallback: try via animator directly
-                if animator then
-                    ok, err = pcall(function()
-                        track = animator:LoadAnimation(anim)
-                    end)
-                end
-            end
-
-            if not ok or not track then
                 showToast("Failed: " .. animName)
+                anim:Destroy()
                 return
             end
 
-            track.Looped   = true
+            -- Action4 overrides everything; looped so it runs forever
             track.Priority = Enum.AnimationPriority.Action4
-            track:Play(0.1)
+            track.Looped   = true
+            track:Play(0.15)
             currentAnimTrack = track
+
+            -- Loop-keeper: if the game resets tracks (e.g. on respawn or
+            -- a game script overrides), restart our dance automatically
+            danceLoopConn = RunService.Heartbeat:Connect(function()
+                if not currentAnimTrack then return end
+                -- If someone else stopped our track, replay it
+                if not track.IsPlaying then
+                    pcall(function() track:Play(0) end)
+                end
+            end)
         end)
     end
 
     local function stopDance()
+        if danceLoopConn then danceLoopConn:Disconnect() danceLoopConn = nil end
         if currentAnimTrack then
             pcall(function() currentAnimTrack:Stop(0.15) end)
             currentAnimTrack = nil
@@ -1578,11 +1593,12 @@ local function openReanimGui()
         buildDanceRows(SearchBox.Text)
     end)
 
-    -- Stop animation when GUI is closed
+    -- Stop animation and loop-keeper when GUI is closed
     G.AncestryChanged:Connect(function()
         if not G.Parent then
+            if danceLoopConn then danceLoopConn:Disconnect() danceLoopConn = nil end
             if currentAnimTrack then
-                pcall(function() currentAnimTrack:Stop() end)
+                pcall(function() currentAnimTrack:Stop(0) end)
             end
         end
     end)
