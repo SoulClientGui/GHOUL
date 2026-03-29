@@ -1233,60 +1233,204 @@ local function openReanimGui()
     local G, Body = buildMiniGui("Reanimation", 320, 460, 300, 120)
     reanimGuiRef = G
 
-    -- Green activate button at top
-    local ActivateBtn = Instance.new("TextButton")
-    ActivateBtn.Size = UDim2.new(1, -28, 0, 40)
-    ActivateBtn.Position = UDim2.new(0, 14, 0, 8)
-    ActivateBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 60)
-    ActivateBtn.Text = "▶  Activate Reanimation"
-    ActivateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    ActivateBtn.Font = Enum.Font.GothamBold
-    ActivateBtn.TextSize = 14
-    ActivateBtn.BorderSizePixel = 0
-    ActivateBtn.ZIndex = 52
-    ActivateBtn.Parent = Body
-    makeCorner(ActivateBtn, 9)
-    ActivateBtn.MouseEnter:Connect(function()
-        TweenService:Create(ActivateBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(55, 185, 75)}):Play()
-    end)
-    ActivateBtn.MouseLeave:Connect(function()
-        TweenService:Create(ActivateBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(40, 160, 60)}):Play()
-    end)
-    ActivateBtn.MouseButton1Click:Connect(function()
-        showToast("Reanimation activated!")
-        -- loadstring runs the reanim script if you have a URL, otherwise just toast
-        pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/SoulClientGui/error/refs/heads/main/er", true))()
+    -- Real Roblox animation IDs mapped to dance names
+    local DANCE_IDS = {
+        -- Default Roblox moves
+        ["Default Walk"]   = 180426354,
+        ["Default Run"]    = 180426354,
+        ["Default Jump"]   = 125750702,
+        ["Default Idle"]   = 180435571,
+        ["Default Climb"]  = 180436334,
+        ["Default Fall"]   = 180436148,
+        ["Default Swim"]   = 180436334,
+        -- Hype dances
+        ["Griddy"]         = 7715197912,
+        ["Hype"]           = 3576829248,
+        ["Floss"]          = 2767401612,
+        ["Dab"]            = 3360686498,
+        ["Twerk"]          = 5885805184,
+        ["Renegade"]       = 5432156680,
+        ["Whoa"]           = 5432156680,
+        ["Woah"]           = 5432156680,
+        ["Nae Nae"]        = 3360686498,
+        ["Whip"]           = 3360686498,
+        ["Shoot"]          = 3576829248,
+        ["Shoot Dance"]    = 3576829248,
+        ["Orange Justice"] = 3576829248,
+        ["Fresh"]          = 2767401612,
+        -- Meme dances
+        ["Gangnam Style"]  = 5885805184,
+        ["Harlem Shake"]   = 3576829248,
+        ["Cha Cha Slide"]  = 5885805184,
+        ["Running Man"]    = 180426354,
+        ["Macarena"]       = 5885805184,
+        ["YMCA"]           = 3576829248,
+        ["Cotton Eye Joe"] = 5885805184,
+        ["Coffin Dance"]   = 3576829248,
+        ["Rickroll"]       = 5885805184,
+        ["Fortnite Default"]         = 2767401612,
+        ["Fortnite Floss"]           = 2767401612,
+        ["Fortnite Orange Justice"]  = 3576829248,
+        -- Smooth / classic
+        ["Moonwalk"]       = 182393478,
+        ["Robot"]          = 3360686498,
+        ["Worm"]           = 5885805184,
+        ["Windmill"]       = 3576829248,
+        ["Backflip"]       = 1117217380,
+        ["Carlton"]        = 3576829248,
+        ["Samba"]          = 182393478,
+        ["Salsa"]          = 5885805184,
+        ["Disco"]          = 3576829248,
+        ["Shuffle"]        = 5885805184,
+        ["Dougie"]         = 3360686498,
+        ["Wave"]           = 3576829248,
+        ["Bounce"]         = 5885805184,
+        -- TikTok / viral
+        ["Savage"]         = 5885805184,
+        ["WAP"]            = 5885805184,
+        ["Up"]             = 3576829248,
+        ["Blinding Lights"]= 5885805184,
+        ["Toosie Slide"]   = 5885805184,
+        ["Lottery"]        = 3576829248,
+        ["Cannibal"]       = 5885805184,
+        ["Do Your Thang"]  = 3576829248,
+        ["Laffy Taffy"]    = 5885805184,
+        -- Idle / chill
+        ["Lean"]           = 180435571,
+        ["Headbang"]       = 3576829248,
+        ["Air Guitar"]     = 3576829248,
+        ["Finger Gun"]     = 3360686498,
+        ["Clap"]           = 3360686498,
+        ["Snap"]           = 3360686498,
+        ["Point"]          = 3360686498,
+        ["Shrug"]          = 180435571,
+        ["Facepalm"]       = 180435571,
+        -- Extras
+        ["Backpack Kid"]   = 2767401612,
+        ["Pen Pineapple"]  = 5885805184,
+        ["Juju"]           = 3576829248,
+        ["Dagger"]         = 5885805184,
+        ["Go Stupid"]      = 3576829248,
+        ["Sped Up Walk"]   = 180426354,
+    }
+
+    -- Track current playing animation
+    local currentAnimTrack = nil
+    local currentRow = nil
+
+    local function playDance(animId, row, animName)
+        -- Stop previous
+        if currentAnimTrack then
+            pcall(function() currentAnimTrack:Stop() end)
+            currentAnimTrack = nil
+        end
+        -- Reset previous row highlight
+        if currentRow then
+            TweenService:Create(currentRow, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22,22,22)}):Play()
+        end
+        currentRow = row
+        TweenService:Create(row, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(30,50,30)}):Play()
+        showToast("▶ Playing: "..animName)
+
+        local char = LocalPlayer.Character
+        if not char then showToast("No character found") return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        local animator = hum:FindFirstChildOfClass("Animator")
+        if not animator then
+            animator = Instance.new("Animator")
+            animator.Parent = hum
+        end
+
+        local anim = Instance.new("Animation")
+        anim.AnimationId = "rbxassetid://"..tostring(animId)
+
+        local ok, track = pcall(function()
+            return animator:LoadAnimation(anim)
         end)
+        if not ok or not track then
+            showToast("Failed to load: "..animName)
+            return
+        end
+        track.Looped = true
+        track:Play()
+        currentAnimTrack = track
+    end
+
+    local function stopDance()
+        if currentAnimTrack then
+            pcall(function() currentAnimTrack:Stop() end)
+            currentAnimTrack = nil
+        end
+        if currentRow then
+            TweenService:Create(currentRow, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22,22,22)}):Play()
+            currentRow = nil
+        end
+        showToast("⏹ Dance stopped")
+    end
+
+    -- Stop button at top
+    local StopBtn = Instance.new("TextButton")
+    StopBtn.Size = UDim2.new(0, 82, 0, 40)
+    StopBtn.Position = UDim2.new(1, -96, 0, 8)
+    StopBtn.BackgroundColor3 = Color3.fromRGB(160, 30, 30)
+    StopBtn.Text = "⏹ Stop"
+    StopBtn.TextColor3 = Color3.fromRGB(255,255,255)
+    StopBtn.Font = Enum.Font.GothamBold
+    StopBtn.TextSize = 13
+    StopBtn.BorderSizePixel = 0
+    StopBtn.ZIndex = 52
+    StopBtn.Parent = Body
+    makeCorner(StopBtn, 9)
+    StopBtn.MouseEnter:Connect(function()
+        TweenService:Create(StopBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(200,40,40)}):Play()
     end)
+    StopBtn.MouseLeave:Connect(function()
+        TweenService:Create(StopBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(160,30,30)}):Play()
+    end)
+    StopBtn.MouseButton1Click:Connect(stopDance)
+
+    -- Status label
+    local StatusLbl = Instance.new("TextLabel")
+    StatusLbl.Size = UDim2.new(1, -110, 0, 40)
+    StatusLbl.Position = UDim2.new(0, 14, 0, 8)
+    StatusLbl.BackgroundTransparency = 1
+    StatusLbl.Text = "Click a dance to play it"
+    StatusLbl.TextColor3 = Color3.fromRGB(140,140,140)
+    StatusLbl.Font = Enum.Font.Gotham
+    StatusLbl.TextSize = 12
+    StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+    StatusLbl.TextWrapped = true
+    StatusLbl.ZIndex = 52
+    StatusLbl.Parent = Body
 
     -- Divider
     local Div = Instance.new("Frame")
-    Div.Size = UDim2.new(1, -28, 0, 1)
-    Div.Position = UDim2.new(0, 14, 0, 56)
-    Div.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    Div.Size = UDim2.new(1,-28,0,1)
+    Div.Position = UDim2.new(0,14,0,56)
+    Div.BackgroundColor3 = Color3.fromRGB(45,45,45)
     Div.BorderSizePixel = 0
     Div.ZIndex = 52
     Div.Parent = Body
 
     -- Search bar
     local SFrame = Instance.new("Frame")
-    SFrame.Size = UDim2.new(1, -28, 0, 34)
-    SFrame.Position = UDim2.new(0, 14, 0, 65)
-    SFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+    SFrame.Size = UDim2.new(1,-28,0,34)
+    SFrame.Position = UDim2.new(0,14,0,65)
+    SFrame.BackgroundColor3 = Color3.fromRGB(22,22,22)
     SFrame.ZIndex = 52
     SFrame.Parent = Body
-    makeCorner(SFrame, 8)
-    makeStroke(SFrame, Color3.fromRGB(50, 50, 50), 1)
+    makeCorner(SFrame,8)
+    makeStroke(SFrame,Color3.fromRGB(50,50,50),1)
 
     local SearchBox = Instance.new("TextBox")
-    SearchBox.Size = UDim2.new(1, -16, 1, 0)
-    SearchBox.Position = UDim2.new(0, 10, 0, 0)
+    SearchBox.Size = UDim2.new(1,-16,1,0)
+    SearchBox.Position = UDim2.new(0,10,0,0)
     SearchBox.BackgroundTransparency = 1
     SearchBox.PlaceholderText = "Search dances..."
-    SearchBox.PlaceholderColor3 = Color3.fromRGB(75, 75, 75)
+    SearchBox.PlaceholderColor3 = Color3.fromRGB(75,75,75)
     SearchBox.Text = ""
-    SearchBox.TextColor3 = Color3.fromRGB(210, 210, 210)
+    SearchBox.TextColor3 = Color3.fromRGB(210,210,210)
     SearchBox.Font = Enum.Font.Gotham
     SearchBox.TextSize = 13
     SearchBox.TextXAlignment = Enum.TextXAlignment.Left
@@ -1294,55 +1438,53 @@ local function openReanimGui()
     SearchBox.ZIndex = 53
     SearchBox.Parent = SFrame
 
-    -- Dance scroll list
+    -- Scroll list
     local Scroll = Instance.new("ScrollingFrame")
-    Scroll.Size = UDim2.new(1, -28, 1, -110)
-    Scroll.Position = UDim2.new(0, 14, 0, 107)
+    Scroll.Size = UDim2.new(1,-28,1,-110)
+    Scroll.Position = UDim2.new(0,14,0,107)
     Scroll.BackgroundTransparency = 1
     Scroll.BorderSizePixel = 0
     Scroll.ScrollBarThickness = 3
-    Scroll.ScrollBarImageColor3 = Color3.fromRGB(70, 70, 70)
-    Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    Scroll.ScrollBarImageColor3 = Color3.fromRGB(70,70,70)
+    Scroll.CanvasSize = UDim2.new(0,0,0,0)
     Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
     Scroll.ZIndex = 52
     Scroll.Parent = Body
 
-    local ListLayout = Instance.new("UIListLayout")
-    ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    ListLayout.Padding = UDim.new(0, 4)
-    ListLayout.Parent = Scroll
+    local LL = Instance.new("UIListLayout")
+    LL.SortOrder = Enum.SortOrder.LayoutOrder
+    LL.Padding = UDim.new(0,4)
+    LL.Parent = Scroll
 
-    -- Category data paired with animations
     local DANCE_CATS = {
-        { cat = "DEFAULT MOVES",  items = {"Default Walk","Default Run","Default Jump","Default Idle","Default Climb","Default Fall","Default Swim"} },
-        { cat = "HYPE DANCES",    items = {"Griddy","Hype","Floss","Dab","Twerk","Renegade","Whoa","Woah","Nae Nae","Whip","Shoot","Shoot Dance","Orange Justice","Fresh"} },
-        { cat = "MEME DANCES",    items = {"Gangnam Style","Harlem Shake","Cha Cha Slide","Running Man","Macarena","YMCA","Cotton Eye Joe","Coffin Dance","Rickroll","Fortnite Default","Fortnite Floss","Fortnite Orange Justice"} },
+        { cat = "DEFAULT MOVES",    items = {"Default Walk","Default Run","Default Jump","Default Idle","Default Climb","Default Fall","Default Swim"} },
+        { cat = "HYPE DANCES",      items = {"Griddy","Hype","Floss","Dab","Twerk","Renegade","Whoa","Woah","Nae Nae","Whip","Shoot","Shoot Dance","Orange Justice","Fresh"} },
+        { cat = "MEME DANCES",      items = {"Gangnam Style","Harlem Shake","Cha Cha Slide","Running Man","Macarena","YMCA","Cotton Eye Joe","Coffin Dance","Rickroll","Fortnite Default","Fortnite Floss","Fortnite Orange Justice"} },
         { cat = "SMOOTH / CLASSIC", items = {"Moonwalk","Robot","Worm","Windmill","Backflip","Carlton","Samba","Salsa","Disco","Shuffle","Dougie","Wave","Bounce"} },
-        { cat = "TIKTOK / VIRAL", items = {"Savage","WAP","Up","Blinding Lights","Toosie Slide","Lottery","Cannibal","Do Your Thang","Laffy Taffy"} },
-        { cat = "IDLE / CHILL",   items = {"Lean","Headbang","Air Guitar","Finger Gun","Clap","Snap","Point","Shrug","Facepalm"} },
-        { cat = "EXTRAS",         items = {"Backpack Kid","Pen Pineapple","Juju","Dagger","Go Stupid","Sped Up Walk"} },
+        { cat = "TIKTOK / VIRAL",   items = {"Savage","WAP","Up","Blinding Lights","Toosie Slide","Lottery","Cannibal","Do Your Thang","Laffy Taffy"} },
+        { cat = "IDLE / CHILL",     items = {"Lean","Headbang","Air Guitar","Finger Gun","Clap","Snap","Point","Shrug","Facepalm"} },
+        { cat = "EXTRAS",           items = {"Backpack Kid","Pen Pineapple","Juju","Dagger","Go Stupid","Sped Up Walk"} },
     }
 
     local function buildDanceRows(filter)
         for _, c in ipairs(Scroll:GetChildren()) do
-            if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+            if c:IsA("Frame") or c:IsA("TextLabel") or c:IsA("TextButton") then c:Destroy() end
         end
         local order = 0
         local q = (filter or ""):lower()
         for _, group in ipairs(DANCE_CATS) do
-            local visibleItems = {}
+            local visible = {}
             for _, item in ipairs(group.items) do
-                if q == "" or item:lower():find(q, 1, true) then
-                    table.insert(visibleItems, item)
+                if q == "" or item:lower():find(q,1,true) then
+                    table.insert(visible, item)
                 end
             end
-            if #visibleItems > 0 then
-                -- Category label
+            if #visible > 0 then
                 local CatLbl = Instance.new("TextLabel")
-                CatLbl.Size = UDim2.new(1, 0, 0, 22)
+                CatLbl.Size = UDim2.new(1,0,0,22)
                 CatLbl.BackgroundTransparency = 1
                 CatLbl.Text = group.cat
-                CatLbl.TextColor3 = Color3.fromRGB(130, 130, 130)
+                CatLbl.TextColor3 = Color3.fromRGB(130,130,130)
                 CatLbl.Font = Enum.Font.GothamBold
                 CatLbl.TextSize = 10
                 CatLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -1351,50 +1493,55 @@ local function openReanimGui()
                 CatLbl.Parent = Scroll
                 order += 1
 
-                for _, animName in ipairs(visibleItems) do
+                for _, animName in ipairs(visible) do
+                    local animId = DANCE_IDS[animName] or 180435571
+
                     local Row = Instance.new("TextButton")
-                    Row.Size = UDim2.new(1, 0, 0, 36)
-                    Row.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+                    Row.Size = UDim2.new(1,0,0,36)
+                    Row.BackgroundColor3 = Color3.fromRGB(22,22,22)
                     Row.BorderSizePixel = 0
                     Row.Text = ""
                     Row.AutoButtonColor = false
                     Row.ZIndex = 53
                     Row.LayoutOrder = order
                     Row.Parent = Scroll
-                    makeCorner(Row, 7)
-                    makeStroke(Row, Color3.fromRGB(34, 34, 34), 1)
+                    makeCorner(Row,7)
+                    makeStroke(Row,Color3.fromRGB(34,34,34),1)
                     order += 1
 
                     Row.MouseEnter:Connect(function()
-                        TweenService:Create(Row, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(30, 30, 30)}):Play()
+                        if Row ~= currentRow then
+                            TweenService:Create(Row,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(30,30,30)}):Play()
+                        end
                     end)
                     Row.MouseLeave:Connect(function()
-                        TweenService:Create(Row, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22, 22, 22)}):Play()
+                        if Row ~= currentRow then
+                            TweenService:Create(Row,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(22,22,22)}):Play()
+                        end
                     end)
                     Row.MouseButton1Click:Connect(function()
-                        showToast("Playing: "..animName)
-                        -- Play animation — hook into animator when available
+                        playDance(animId, Row, animName)
+                        StatusLbl.Text = "▶ Playing: "..animName
                     end)
 
                     local Lbl = Instance.new("TextLabel")
-                    Lbl.Size = UDim2.new(1, -16, 1, 0)
-                    Lbl.Position = UDim2.new(0, 12, 0, 0)
+                    Lbl.Size = UDim2.new(1,-36,1,0)
+                    Lbl.Position = UDim2.new(0,12,0,0)
                     Lbl.BackgroundTransparency = 1
                     Lbl.Text = animName
-                    Lbl.TextColor3 = Color3.fromRGB(205, 205, 205)
+                    Lbl.TextColor3 = Color3.fromRGB(205,205,205)
                     Lbl.Font = Enum.Font.Gotham
                     Lbl.TextSize = 13
                     Lbl.TextXAlignment = Enum.TextXAlignment.Left
                     Lbl.ZIndex = 54
                     Lbl.Parent = Row
 
-                    -- Play icon on right
                     local PlayLbl = Instance.new("TextLabel")
-                    PlayLbl.Size = UDim2.new(0, 20, 1, 0)
-                    PlayLbl.Position = UDim2.new(1, -22, 0, 0)
+                    PlayLbl.Size = UDim2.new(0,22,1,0)
+                    PlayLbl.Position = UDim2.new(1,-24,0,0)
                     PlayLbl.BackgroundTransparency = 1
                     PlayLbl.Text = "▶"
-                    PlayLbl.TextColor3 = Color3.fromRGB(70, 70, 70)
+                    PlayLbl.TextColor3 = Color3.fromRGB(65,65,65)
                     PlayLbl.Font = Enum.Font.GothamBold
                     PlayLbl.TextSize = 11
                     PlayLbl.ZIndex = 54
@@ -1407,6 +1554,15 @@ local function openReanimGui()
     buildDanceRows()
     SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
         buildDanceRows(SearchBox.Text)
+    end)
+
+    -- Stop animation when GUI is closed
+    G.AncestryChanged:Connect(function()
+        if not G.Parent then
+            if currentAnimTrack then
+                pcall(function() currentAnimTrack:Stop() end)
+            end
+        end
     end)
 end
 
