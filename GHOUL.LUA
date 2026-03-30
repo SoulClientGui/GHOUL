@@ -45,7 +45,9 @@ local COMMANDS = {
     { cat = "PLAYER",   key = ";emotes",    desc = "Open emotes menu" },
     { cat = "PLAYER",   key = ";facepalm",  desc = "Fall forward [T key]" },
     { cat = "PLAYER",   key = ";timereverse", desc = "Reverse facepalm [Z key]" },
-    { cat = "PLAYER",   key = ";facebang",  desc = "Face Fuck — activate with Z" },
+    { cat = "PLAYER",   key = ";facebang",  desc = "Face Fuck — speed/dist GUI" },
+    { cat = "PLAYER",   key = ";headsit",   desc = "Sit on nearest player head [X]" },
+    { cat = "PLAYER",   key = ";jerk",      desc = "Toggle jerk animation" },
     { cat = "VISUAL",   key = ";esp",       desc = "Toggle player ESP outlines" },
     { cat = "VISUAL",   key = ";box",       desc = "Toggle box ESP" },
     { cat = "VISUAL",   key = ";chams",     desc = "Toggle tracers + name tags" },
@@ -56,6 +58,7 @@ local COMMANDS = {
     { cat = "MISC",     key = ";shaders",   desc = "Load post-processing shaders" },
     { cat = "MISC",     key = ";gravity",   desc = "Set gravity [n]" },
     { cat = "MISC",     key = ";ftp",       desc = "Flash-TP to mouse on F key" },
+    { cat = "EXTERNALS", key = ";iy",       desc = "⚡ Infinite Yield console" },
 }
 
 local ANIMATIONS = {
@@ -933,10 +936,150 @@ local function toggleTimeReverse()
 end
 
 -- ── FACEBANG ─────────────────────────────────────────────────
-local function loadFacebang()
-    showToast(";facebang loaded — press Z to activate")
+local facebangGuiRef = nil
+local function openFacebangGui()
+    if facebangGuiRef then facebangGuiRef:Destroy() facebangGuiRef = nil end
+    local G, Body = buildMiniGui("Face Bang", 270, 150, 260, 200)
+    facebangGuiRef = G
+
+    local _, getSpeed = makeSlider(Body, 8,  "Speed",    1, 20, 8)
+    local _, getDist  = makeSlider(Body, 68, "Distance", 1, 20, 5)
+
+    local LoadBtn = makeBtn(Body, 128, 14, "▶  Load Face Bang", 242)
+    LoadBtn.BackgroundColor3 = Color3.fromRGB(160, 30, 30)
+    LoadBtn.MouseEnter:Connect(function()
+        TweenService:Create(LoadBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(200,40,40)}):Play()
+    end)
+    LoadBtn.MouseLeave:Connect(function()
+        TweenService:Create(LoadBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(160,30,30)}):Play()
+    end)
+    LoadBtn.MouseButton1Click:Connect(function()
+        showToast("Face Bang loaded — Z to activate")
+        -- Store values as globals so the external script can read them if needed
+        _G.GhoulFacebangSpeed    = getSpeed()
+        _G.GhoulFacebangDistance = getDist()
+        pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/EnterpriseExperience/bruhlolw/refs/heads/main/face_bang_script.lua"))()
+        end)
+    end)
+end
+-- keep a simple alias so chat ;facebang opens the GUI
+local function loadFacebang() openFacebangGui() end
+
+-- ── HEADSIT ──────────────────────────────────────────────────
+local headsitActive  = false
+local headsitHBConn  = nil
+local headsitInpConn = nil
+
+local function openHeadsitGui()
+    showToast("HeadSit ON — press X near a player")
+
+    local function getNearestHRP()
+        local closest, shortest = nil, math.huge
+        local char = LocalPlayer.Character; if not char then return nil end
+        local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return nil end
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                local tHRP = p.Character:FindFirstChild("HumanoidRootPart")
+                if tHRP then
+                    local d = (tHRP.Position - hrp.Position).Magnitude
+                    if d < shortest then shortest = d; closest = tHRP end
+                end
+            end
+        end
+        return closest
+    end
+
+    local function stopSit()
+        headsitActive = false
+        if headsitHBConn then headsitHBConn:Disconnect() headsitHBConn = nil end
+        local char = LocalPlayer.Character; if not char then return end
+        local hum  = char:FindFirstChildOfClass("Humanoid"); if hum then hum.Sit = false end
+        local hrp  = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.Velocity    = Vector3.zero
+            hrp.RotVelocity = Vector3.zero
+        end
+        showToast("HeadSit OFF")
+    end
+
+    local function startSit()
+        local target = getNearestHRP(); if not target then showToast("No nearby player") return end
+        local char = LocalPlayer.Character; if not char then return end
+        local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+        local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+        headsitActive = true
+        hum.Sit = true
+        if headsitHBConn then headsitHBConn:Disconnect() end
+        headsitHBConn = RunService.Heartbeat:Connect(function()
+            if not headsitActive or not target.Parent then stopSit() return end
+            hum.Sit = true
+            hrp.CFrame      = target.CFrame * CFrame.new(0, 3, 0)
+            hrp.Velocity    = Vector3.zero
+            hrp.RotVelocity = Vector3.zero
+        end)
+        showToast("HeadSit ON — X again to stop")
+    end
+
+    -- Only register the X key connection once
+    if headsitInpConn then headsitInpConn:Disconnect() end
+    headsitInpConn = UserInputService.InputBegan:Connect(function(inp, gp)
+        if gp and UserInputService:GetFocusedTextBox() then return end
+        if inp.KeyCode ~= Enum.KeyCode.X then return end
+        if headsitActive then stopSit() else startSit() end
+    end)
+end
+local function toggleHeadsit() openHeadsitGui() end
+
+-- ── JERK ─────────────────────────────────────────────────────
+local jerkActive = false
+local jerkTrack  = nil
+local jerkAnim   = nil
+
+local function toggleJerk()
+    jerkActive = not jerkActive
+    showToast(jerkActive and "Jerk  ON" or "Jerk  OFF")
+
+    if jerkActive then
+        task.spawn(function()
+            local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+            local animator = hum:FindFirstChildOfClass("Animator"); if not animator then return end
+
+            jerkAnim = Instance.new("Animation")
+            jerkAnim.AnimationId = "rbxassetid://698251653"
+
+            local ok = pcall(function() jerkTrack = animator:LoadAnimation(jerkAnim) end)
+            if not ok or not jerkTrack then return end
+
+            jerkTrack.Priority = Enum.AnimationPriority.Action4
+            jerkTrack.Looped   = true
+            jerkTrack:Play(0)
+            jerkTrack:AdjustSpeed(0.6)
+
+            -- Keep playing while active
+            while jerkActive and jerkTrack do
+                if not jerkTrack.IsPlaying then pcall(function() jerkTrack:Play(0) end) end
+                task.wait(0.1)
+            end
+        end)
+    else
+        if jerkTrack then
+            pcall(function() jerkTrack:Stop() end)
+            jerkTrack = nil
+        end
+        if jerkAnim then
+            pcall(function() jerkAnim:Destroy() end)
+            jerkAnim = nil
+        end
+    end
+end
+
+-- ── INFINITE YIELD ───────────────────────────────────────────
+local function loadIY()
+    showToast("⚡ Loading Infinite Yield...")
     pcall(function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/EnterpriseExperience/bruhlolw/refs/heads/main/face_bang_script.lua"))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
     end)
 end
 
@@ -2061,6 +2204,9 @@ local function setupChatListener()
         elseif msg == ";facepalm" then toggleFacepalm()
         elseif msg == ";timereverse" then toggleTimeReverse()
         elseif msg == ";facebang"  then loadFacebang()
+        elseif msg == ";headsit"   then openHeadsitGui()
+        elseif msg == ";jerk"      then toggleJerk()
+        elseif msg == ";iy"        then loadIY()
         elseif msg == ";esp"      then toggleESP()
         elseif msg == ";box"      then toggleBox()
         elseif msg == ";chams"    then toggleChams()
@@ -2125,6 +2271,9 @@ local cmdActions = {
     [";facepalm"]   = toggleFacepalm,
     [";timereverse"]= toggleTimeReverse,
     [";facebang"]   = loadFacebang,
+    [";headsit"]    = openHeadsitGui,
+    [";jerk"]       = toggleJerk,
+    [";iy"]         = loadIY,
     [";esp"]        = toggleESP,
     [";box"]        = toggleBox,
     [";chams"]      = toggleChams,
@@ -2289,35 +2438,46 @@ local function buildCommandsPanel()
         for i,cmd in ipairs(COMMANDS) do
             local q=(filter or ""):lower()
             if q=="" or cmd.key:lower():find(q,1,true) or cmd.desc:lower():find(q,1,true) then
+                local isExternal = cmd.cat == "EXTERNALS"
+
                 if cmd.cat~=lastCat then
                     local CatLbl=Instance.new("TextLabel")
                     CatLbl.Size=UDim2.new(1,0,0,24) CatLbl.BackgroundTransparency=1
-                    CatLbl.Text=cmd.cat CatLbl.TextColor3=Color3.fromRGB(140,140,140)
+                    CatLbl.Text=cmd.cat
+                    -- EXTERNALS gets gold colour to stand out
+                    CatLbl.TextColor3 = isExternal and Color3.fromRGB(255,200,40) or Color3.fromRGB(140,140,140)
                     CatLbl.Font=Enum.Font.GothamBold CatLbl.TextSize=10
                     CatLbl.TextXAlignment=Enum.TextXAlignment.Left CatLbl.ZIndex=24
                     CatLbl.LayoutOrder=i*10-1 CatLbl.Parent=CmdScroll
                     lastCat=cmd.cat
                 end
+
+                -- EXTERNALS rows get a darker gold background
+                local rowBg = isExternal and Color3.fromRGB(35,28,8) or Color3.fromRGB(22,22,22)
+                local rowStroke = isExternal and Color3.fromRGB(80,60,10) or Color3.fromRGB(34,34,34)
                 local Row=Instance.new("TextButton")
-                Row.Size=UDim2.new(1,0,0,44) Row.BackgroundColor3=Color3.fromRGB(22,22,22)
+                Row.Size=UDim2.new(1,0,0,44) Row.BackgroundColor3=rowBg
                 Row.BorderSizePixel=0 Row.Text="" Row.AutoButtonColor=false
                 Row.ZIndex=24 Row.LayoutOrder=i*10 Row.Parent=CmdScroll
-                makeCorner(Row,8) makeStroke(Row,Color3.fromRGB(34,34,34),1)
+                makeCorner(Row,8) makeStroke(Row,rowStroke,1)
 
                 Row.MouseEnter:Connect(function()
-                    TweenService:Create(Row,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(30,30,30)}):Play()
+                    local hov = isExternal and Color3.fromRGB(50,38,10) or Color3.fromRGB(30,30,30)
+                    TweenService:Create(Row,TweenInfo.new(0.1),{BackgroundColor3=hov}):Play()
                 end)
                 Row.MouseLeave:Connect(function()
-                    TweenService:Create(Row,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(22,22,22)}):Play()
+                    TweenService:Create(Row,TweenInfo.new(0.1),{BackgroundColor3=rowBg}):Play()
                 end)
 
                 local action=cmdActions[cmd.key]
                 if action then Row.MouseButton1Click:Connect(action) end
 
+                -- Key label — yellow for EXTERNALS
                 local KeyLbl=Instance.new("TextLabel")
                 KeyLbl.Size=UDim2.new(0,140,1,0) KeyLbl.Position=UDim2.new(0,14,0,0)
                 KeyLbl.BackgroundTransparency=1 KeyLbl.Text=cmd.key
-                KeyLbl.TextColor3=Color3.fromRGB(255,255,255) KeyLbl.Font=Enum.Font.GothamBold
+                KeyLbl.TextColor3 = isExternal and Color3.fromRGB(255,210,40) or Color3.fromRGB(255,255,255)
+                KeyLbl.Font=Enum.Font.GothamBold
                 KeyLbl.TextSize=13 KeyLbl.TextXAlignment=Enum.TextXAlignment.Left KeyLbl.ZIndex=25 KeyLbl.Parent=Row
 
                 local Div=Instance.new("Frame")
@@ -2327,13 +2487,15 @@ local function buildCommandsPanel()
                 local DescLbl=Instance.new("TextLabel")
                 DescLbl.Size=UDim2.new(1,-172,1,0) DescLbl.Position=UDim2.new(0,164,0,0)
                 DescLbl.BackgroundTransparency=1 DescLbl.Text=cmd.desc
-                DescLbl.TextColor3=Color3.fromRGB(165,165,165) DescLbl.Font=Enum.Font.Gotham
+                DescLbl.TextColor3 = isExternal and Color3.fromRGB(200,170,80) or Color3.fromRGB(165,165,165)
+                DescLbl.Font=Enum.Font.Gotham
                 DescLbl.TextSize=12 DescLbl.TextXAlignment=Enum.TextXAlignment.Left DescLbl.ZIndex=25 DescLbl.Parent=Row
 
                 if action then
                     local ActDot=Instance.new("Frame")
                     ActDot.Size=UDim2.new(0,5,0,5) ActDot.Position=UDim2.new(1,-10,0.5,-2.5)
-                    ActDot.BackgroundColor3=Color3.fromRGB(180,180,180) ActDot.BorderSizePixel=0 ActDot.ZIndex=25 ActDot.Parent=Row
+                    ActDot.BackgroundColor3 = isExternal and Color3.fromRGB(255,200,40) or Color3.fromRGB(180,180,180)
+                    ActDot.BorderSizePixel=0 ActDot.ZIndex=25 ActDot.Parent=Row
                     makeCorner(ActDot,99)
                 end
                 shown+=1
