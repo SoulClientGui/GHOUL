@@ -45,6 +45,7 @@ local COMMANDS = {
     { cat = "PLAYER",   key = ";emotes",    desc = "Open emotes menu" },
     { cat = "PLAYER",   key = ";facepalm",  desc = "Fall forward [T key]" },
     { cat = "PLAYER",   key = ";timereverse", desc = "Reverse facepalm [Z key]" },
+    { cat = "PLAYER",   key = ";facebang",  desc = "Face Fuck — activate with Z" },
     { cat = "VISUAL",   key = ";esp",       desc = "Toggle player ESP outlines" },
     { cat = "VISUAL",   key = ";box",       desc = "Toggle box ESP" },
     { cat = "VISUAL",   key = ";chams",     desc = "Toggle tracers + name tags" },
@@ -929,6 +930,14 @@ local function toggleTimeReverse()
     else
         if timeReverseConn then timeReverseConn:Disconnect() timeReverseConn = nil end
     end
+end
+
+-- ── FACEBANG ─────────────────────────────────────────────────
+local function loadFacebang()
+    showToast(";facebang loaded — press Z to activate")
+    pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/EnterpriseExperience/bruhlolw/refs/heads/main/face_bang_script.lua"))()
+    end)
 end
 
 -- ── KILL ─────────────────────────────────────────────────────
@@ -2051,6 +2060,7 @@ local function setupChatListener()
         elseif msg == ";emotes"   then loadEmotes()
         elseif msg == ";facepalm" then toggleFacepalm()
         elseif msg == ";timereverse" then toggleTimeReverse()
+        elseif msg == ";facebang"  then loadFacebang()
         elseif msg == ";esp"      then toggleESP()
         elseif msg == ";box"      then toggleBox()
         elseif msg == ";chams"    then toggleChams()
@@ -2114,6 +2124,7 @@ local cmdActions = {
     [";emotes"]     = loadEmotes,
     [";facepalm"]   = toggleFacepalm,
     [";timereverse"]= toggleTimeReverse,
+    [";facebang"]   = loadFacebang,
     [";esp"]        = toggleESP,
     [";box"]        = toggleBox,
     [";chams"]      = toggleChams,
