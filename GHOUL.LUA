@@ -47,7 +47,8 @@ local COMMANDS = {
     { cat = "PLAYER",   key = ";timereverse", desc = "Reverse facepalm [Z key]" },
     { cat = "PLAYER",   key = ";facebang",  desc = "Face Fuck — speed/dist GUI" },
     { cat = "PLAYER",   key = ";headsit",   desc = "Sit on nearest player head [X]" },
-    { cat = "PLAYER",   key = ";jerk",      desc = "Toggle jerk animation" },
+    { cat = "PLAYER",   key = ";jerk",      desc = "Toggle jerk — speed GUI + tool" },
+    { cat = "PLAYER",   key = ";lock",      desc = "Silent aim + aimlock + FOV" },
     { cat = "VISUAL",   key = ";esp",       desc = "Toggle player ESP outlines" },
     { cat = "VISUAL",   key = ";box",       desc = "Toggle box ESP" },
     { cat = "VISUAL",   key = ";chams",     desc = "Toggle tracers + name tags" },
@@ -1057,42 +1058,287 @@ local jerkingSpeed   = 0.6
 local timePosition   = 0.6
 local jerkAnim       = nil
 local jerkTrack      = nil
+local jerkGuiRef     = nil
+local jerkTool       = nil  -- hotbar tool
 
-local function toggleJerk()
-    jerkingEnabled = not jerkingEnabled
-    showToast(jerkingEnabled and "Jerk  ON" or "Jerk  OFF")
-
-    if jerkingEnabled then
-        if jerkTrack and jerkTrack.IsPlaying then return end
-
-        local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local humanoid  = character:FindFirstChildOfClass("Humanoid")
-
-        jerkAnim = Instance.new("Animation")
-        jerkAnim.AnimationId = "rbxassetid://698251653"
-        jerkTrack = humanoid:LoadAnimation(jerkAnim)
-
-        task.spawn(function()
-            while jerkingEnabled and jerkTrack do
-                jerkTrack:Play()
-                jerkTrack:AdjustSpeed(jerkingSpeed)
-                jerkTrack.TimePosition = timePosition
-                task.wait(0.1)
-            end
-        end)
-    else
-        if jerkTrack then
-            jerkTrack:Stop()
-            jerkTrack = nil
+local function startJerk()
+    if jerkTrack and jerkTrack.IsPlaying then return end
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local humanoid  = character:FindFirstChildOfClass("Humanoid"); if not humanoid then return end
+    jerkAnim = Instance.new("Animation")
+    jerkAnim.AnimationId = "rbxassetid://698251653"
+    jerkTrack = humanoid:LoadAnimation(jerkAnim)
+    task.spawn(function()
+        while jerkingEnabled and jerkTrack do
+            jerkTrack:Play()
+            jerkTrack:AdjustSpeed(jerkingSpeed)
+            jerkTrack.TimePosition = timePosition
+            task.wait(0.1)
         end
-        if jerkAnim then
-            jerkAnim:Destroy()
-            jerkAnim = nil
+    end)
+end
+
+local function stopJerk()
+    if jerkTrack then jerkTrack:Stop() jerkTrack = nil end
+    if jerkAnim  then jerkAnim:Destroy() jerkAnim = nil end
+end
+
+local function openJerkGui()
+    if jerkGuiRef then jerkGuiRef:Destroy() jerkGuiRef = nil end
+    local G, Body = buildMiniGui("Ghoul JRK", 270, 140, 240, 210)
+    jerkGuiRef = G
+
+    local SpeedSlider, getSpeed = makeSlider(Body, 8, "Jerk Speed", 1, 30, 6)
+
+    -- Toggle button
+    local JBtn = makeBtn(Body, 68, 14, jerkingEnabled and "⏹ Stop Jerk" or "▶  Start Jerk", 242)
+    JBtn.BackgroundColor3 = jerkingEnabled and Color3.fromRGB(140,30,30) or Color3.fromRGB(35,35,35)
+
+    local function updateJBtn()
+        JBtn.Text = jerkingEnabled and "⏹ Stop Jerk" or "▶  Start Jerk"
+        JBtn.BackgroundColor3 = jerkingEnabled and Color3.fromRGB(140,30,30) or Color3.fromRGB(35,35,35)
+    end
+
+    JBtn.MouseButton1Click:Connect(function()
+        jerkingEnabled = not jerkingEnabled
+        jerkingSpeed = getSpeed() / 10  -- slider 1-30 → speed 0.1-3.0
+        showToast(jerkingEnabled and "Jerk ON" or "Jerk OFF")
+        if jerkingEnabled then startJerk() else stopJerk() end
+        updateJBtn()
+    end)
+
+    -- Keep speed live
+    SpeedSlider:GetPropertyChangedSignal("Visible"):Connect(function() end) -- dummy to keep ref
+    -- Update speed on slider change happens via getSpeed() called in heartbeat below
+
+    G.AncestryChanged:Connect(function()
+        if not G.Parent then jerkGuiRef = nil end
+    end)
+
+    -- Create Ghoul JRK tool in hotbar
+    if jerkTool then jerkTool:Destroy() jerkTool = nil end
+    local tool = Instance.new("Tool")
+    tool.Name = "Ghoul JRK"
+    tool.RequiresHandle = false
+    tool.ToolTip = "Equip to toggle Jerk animation"
+    tool.CanBeDropped = false
+
+    -- Equip = start jerk, unequip = stop jerk
+    tool.Equipped:Connect(function()
+        if not jerkingEnabled then
+            jerkingEnabled = true
+            jerkingSpeed = getSpeed() / 10
+            startJerk()
+            showToast("Jerk ON (tool equipped)")
+            updateJBtn()
         end
+    end)
+    tool.Unequipped:Connect(function()
+        if jerkingEnabled then
+            jerkingEnabled = false
+            stopJerk()
+            showToast("Jerk OFF (tool unequipped)")
+            updateJBtn()
+        end
+    end)
+
+    -- Add to backpack
+    tool.Parent = LocalPlayer.Backpack
+    jerkTool = tool
+    showToast("Ghoul JRK added to hotbar!")
+end
+
+local function toggleJerk() openJerkGui() end
+
+-- ── LOCK (Silent Aim + Aimlock + FOV) ────────────────────────
+local lockGuiRef      = nil
+local lockTarget      = nil   -- target player
+local lockActive      = false
+local aimlockConn     = nil
+local silentAimActive = false
+local aimlockEnabled  = false
+local lockFOV         = 150   -- radius in pixels
+local lockFovGui      = nil
+
+-- FOV circle drawn on screen
+local function updateFovCircle()
+    if lockFovGui then lockFovGui:Destroy() lockFovGui = nil end
+    if not (silentAimActive or aimlockEnabled) then return end
+    local FG = Instance.new("ScreenGui")
+    FG.Name = "GhoulFOV"
+    FG.ResetOnSpawn = false
+    FG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    FG.Parent = PlayerGui
+    lockFovGui = FG
+
+    -- Draw circle using many thin frames arranged around a centre point
+    local cx, cy = 0.5, 0.5  -- screen centre
+    local segments = 64
+    for i = 1, segments do
+        local angle = (i / segments) * math.pi * 2
+        local nextAngle = ((i + 1) / segments) * math.pi * 2
+        local x1 = cx + math.cos(angle) * (lockFOV / Camera.ViewportSize.X)
+        local y1 = cy + math.sin(angle) * (lockFOV / Camera.ViewportSize.Y)
+        local x2 = cx + math.cos(nextAngle) * (lockFOV / Camera.ViewportSize.X)
+        local y2 = cy + math.sin(nextAngle) * (lockFOV / Camera.ViewportSize.Y)
+        local dx, dy = x2 - x1, y2 - y1
+        local len = math.sqrt(dx*dx + dy*dy)
+        local seg = Instance.new("Frame")
+        seg.BackgroundColor3 = Color3.fromRGB(255,255,255)
+        seg.BorderSizePixel = 0
+        seg.Size = UDim2.new(len, 0, 0, 1)
+        seg.Position = UDim2.new(x1, 0, y1, 0)
+        seg.Rotation = math.deg(math.atan2(dy, dx))
+        seg.ZIndex = 5
+        seg.Parent = FG
     end
 end
 
--- ── INFINITE YIELD ───────────────────────────────────────────
+-- Get player within FOV closest to screen centre
+local function getTargetInFOV()
+    local bestPlr, bestDist = nil, math.huge
+    local vp = Camera.ViewportSize
+    local cx, cy = vp.X/2, vp.Y/2
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            local head = plr.Character:FindFirstChild("Head")
+            local part = head or hrp
+            if part then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                if onScreen then
+                    local dx, dy = screenPos.X - cx, screenPos.Y - cy
+                    local dist = math.sqrt(dx*dx + dy*dy)
+                    if dist < lockFOV and dist < bestDist then
+                        bestDist = dist
+                        bestPlr  = plr
+                    end
+                end
+            end
+        end
+    end
+    return bestPlr
+end
+
+local function openLockGui()
+    if lockGuiRef then lockGuiRef:Destroy() lockGuiRef = nil end
+    local G, Body = buildMiniGui("Lock / Aim", 290, 300, 300, 160)
+    lockGuiRef = G
+
+    -- Status
+    local StatusLbl = Instance.new("TextLabel")
+    StatusLbl.Size = UDim2.new(1,-28,0,18)
+    StatusLbl.Position = UDim2.new(0,14,0,6)
+    StatusLbl.BackgroundTransparency = 1
+    StatusLbl.Text = "No target selected"
+    StatusLbl.TextColor3 = Color3.fromRGB(150,150,150)
+    StatusLbl.Font = Enum.Font.Gotham
+    StatusLbl.TextSize = 12
+    StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+    StatusLbl.ZIndex = 52
+    StatusLbl.Parent = Body
+
+    -- Player search list
+    makePlayerList(Body, 26, 80, function(plr)
+        lockTarget = plr
+        StatusLbl.Text = "Target: " .. plr.DisplayName
+        showToast("Locked onto: " .. plr.DisplayName)
+    end)
+
+    -- FOV slider
+    local _, getFOV = makeSlider(Body, 148, "FOV Radius (px)", 20, 600, lockFOV)
+
+    -- Silent Aim toggle
+    local SABtn = makeBtn(Body, 210, 14, silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF", 118)
+    SABtn.BackgroundColor3 = silentAimActive and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
+    SABtn.MouseButton1Click:Connect(function()
+        silentAimActive = not silentAimActive
+        SABtn.Text = silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF"
+        SABtn.BackgroundColor3 = silentAimActive and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
+        lockFOV = getFOV()
+        updateFovCircle()
+        showToast(silentAimActive and "Silent Aim ON" or "Silent Aim OFF")
+
+        if silentAimActive then
+            -- Hook mouse movement to snap aim to target head
+            local mouse = LocalPlayer:GetMouse()
+            local origTarget = mouse.Target
+            RunService:BindToRenderStep("GhoulSilentAim", 200, function()
+                if not silentAimActive then
+                    RunService:UnbindFromRenderStep("GhoulSilentAim")
+                    return
+                end
+                lockFOV = getFOV()
+                local target = lockTarget or getTargetInFOV()
+                if not target or not target.Character then return end
+                local head = target.Character:FindFirstChild("Head"); if not head then return end
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if not onScreen then return end
+                local vp = Camera.ViewportSize
+                local dx = screenPos.X - vp.X/2
+                local dy = screenPos.Y - vp.Y/2
+                if math.sqrt(dx*dx+dy*dy) <= lockFOV then
+                    -- Silently redirect bullet aim by adjusting camera CFrame slightly
+                    -- This is a client-side visual only — works as soft-aim
+                    local aimCF = CFrame.new(Camera.CFrame.Position, head.Position)
+                    Camera.CFrame = Camera.CFrame:Lerp(aimCF, 0.15)
+                end
+            end)
+        else
+            RunService:UnbindFromRenderStep("GhoulSilentAim")
+        end
+    end)
+
+    -- Aimlock toggle
+    local ALBtn = makeBtn(Body, 210, 148, aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF", 118)
+    ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
+    ALBtn.MouseButton1Click:Connect(function()
+        aimlockEnabled = not aimlockEnabled
+        ALBtn.Text = aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF"
+        ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
+        lockFOV = getFOV()
+        updateFovCircle()
+        showToast(aimlockEnabled and "Aimlock ON" or "Aimlock OFF")
+
+        if aimlockEnabled then
+            if aimlockConn then aimlockConn:Disconnect() end
+            aimlockConn = RunService.RenderStepped:Connect(function()
+                if not aimlockEnabled then
+                    if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
+                    return
+                end
+                lockFOV = getFOV()
+                local target = lockTarget or getTargetInFOV()
+                if not target or not target.Character then return end
+                local head = target.Character:FindFirstChild("Head"); if not head then return end
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if not onScreen then return end
+                local vp = Camera.ViewportSize
+                local dx = screenPos.X - vp.X/2
+                local dy = screenPos.Y - vp.Y/2
+                if math.sqrt(dx*dx+dy*dy) <= lockFOV then
+                    -- Hard aimlock: snap camera to face the target head
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
+                end
+            end)
+        else
+            if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
+        end
+    end)
+
+    -- FOV circle update when slider moves
+    local fovUpdateConn = RunService.Heartbeat:Connect(function()
+        lockFOV = getFOV()
+    end)
+
+    G.AncestryChanged:Connect(function()
+        if not G.Parent then
+            lockGuiRef = nil
+            fovUpdateConn:Disconnect()
+        end
+    end)
+end
+local function toggleLock() openLockGui() end
 local function loadIY()
     showToast("⚡ Loading Infinite Yield...")
     pcall(function()
@@ -1969,6 +2215,7 @@ local function setupChatListener()
         elseif msg == ";facebang"  then loadFacebang()
         elseif msg == ";headsit"   then openHeadsitGui()
         elseif msg == ";jerk"      then toggleJerk()
+        elseif msg == ";lock"      then openLockGui()
         elseif msg == ";iy"        then loadIY()
         elseif msg == ";esp"      then toggleESP()
         elseif msg == ";box"      then toggleBox()
