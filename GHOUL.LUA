@@ -1222,15 +1222,16 @@ end
 
 local function openLockGui()
     if lockGuiRef then lockGuiRef:Destroy() lockGuiRef = nil end
-    local G, Body = buildMiniGui("Lock / Aim", 290, 300, 300, 160)
+    -- Height: 18(status) + 34(search bar) + 80(list) + 30(refresh) + 60(slider) + 8(gap) + 38(btn row) + 16(padding) = 284
+    local G, Body = buildMiniGui("Lock / Aim", 290, 320, 300, 140)
     lockGuiRef = G
 
-    -- Status
+    -- Status label
     local StatusLbl = Instance.new("TextLabel")
     StatusLbl.Size = UDim2.new(1,-28,0,18)
     StatusLbl.Position = UDim2.new(0,14,0,6)
     StatusLbl.BackgroundTransparency = 1
-    StatusLbl.Text = "No target selected"
+    StatusLbl.Text = "No target — aim at nearest in FOV"
     StatusLbl.TextColor3 = Color3.fromRGB(150,150,150)
     StatusLbl.Font = Enum.Font.Gotham
     StatusLbl.TextSize = 12
@@ -1238,19 +1239,29 @@ local function openLockGui()
     StatusLbl.ZIndex = 52
     StatusLbl.Parent = Body
 
-    -- Player search list
-    makePlayerList(Body, 26, 80, function(plr)
+    -- Searchable player list at y=26, height=70, refresh btn auto at 26+34+70+6=136
+    makePlayerList(Body, 26, 70, function(plr)
         lockTarget = plr
         StatusLbl.Text = "Target: " .. plr.DisplayName
-        showToast("Locked onto: " .. plr.DisplayName)
+        showToast("Locked → " .. plr.DisplayName)
     end)
 
-    -- FOV slider
-    local _, getFOV = makeSlider(Body, 148, "FOV Radius (px)", 20, 600, lockFOV)
+    -- FOV slider sits below refresh btn: 26+34+70+32 = 162
+    local _, getFOV = makeSlider(Body, 168, "FOV Radius (px)", 20, 800, lockFOV)
 
-    -- Silent Aim toggle
-    local SABtn = makeBtn(Body, 210, 14, silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF", 118)
+    -- Silent Aim + Aimlock buttons side by side: y = 168+52+8 = 228
+    local SABtn = makeBtn(Body, 228, 14, silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF", 128)
     SABtn.BackgroundColor3 = silentAimActive and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
+
+    local ALBtn = makeBtn(Body, 228, 150, aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF", 126)
+    ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
+
+    -- Update FOV live from slider
+    local fovConn = RunService.Heartbeat:Connect(function()
+        lockFOV = getFOV()
+    end)
+
+    -- Silent Aim logic
     SABtn.MouseButton1Click:Connect(function()
         silentAimActive = not silentAimActive
         SABtn.Text = silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF"
@@ -1258,11 +1269,7 @@ local function openLockGui()
         lockFOV = getFOV()
         updateFovCircle()
         showToast(silentAimActive and "Silent Aim ON" or "Silent Aim OFF")
-
         if silentAimActive then
-            -- Hook mouse movement to snap aim to target head
-            local mouse = LocalPlayer:GetMouse()
-            local origTarget = mouse.Target
             RunService:BindToRenderStep("GhoulSilentAim", 200, function()
                 if not silentAimActive then
                     RunService:UnbindFromRenderStep("GhoulSilentAim")
@@ -1278,10 +1285,8 @@ local function openLockGui()
                 local dx = screenPos.X - vp.X/2
                 local dy = screenPos.Y - vp.Y/2
                 if math.sqrt(dx*dx+dy*dy) <= lockFOV then
-                    -- Silently redirect bullet aim by adjusting camera CFrame slightly
-                    -- This is a client-side visual only — works as soft-aim
                     local aimCF = CFrame.new(Camera.CFrame.Position, head.Position)
-                    Camera.CFrame = Camera.CFrame:Lerp(aimCF, 0.15)
+                    Camera.CFrame = Camera.CFrame:Lerp(aimCF, 0.2)
                 end
             end)
         else
@@ -1289,9 +1294,7 @@ local function openLockGui()
         end
     end)
 
-    -- Aimlock toggle
-    local ALBtn = makeBtn(Body, 210, 148, aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF", 118)
-    ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
+    -- Aimlock logic
     ALBtn.MouseButton1Click:Connect(function()
         aimlockEnabled = not aimlockEnabled
         ALBtn.Text = aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF"
@@ -1299,7 +1302,6 @@ local function openLockGui()
         lockFOV = getFOV()
         updateFovCircle()
         showToast(aimlockEnabled and "Aimlock ON" or "Aimlock OFF")
-
         if aimlockEnabled then
             if aimlockConn then aimlockConn:Disconnect() end
             aimlockConn = RunService.RenderStepped:Connect(function()
@@ -1317,7 +1319,6 @@ local function openLockGui()
                 local dx = screenPos.X - vp.X/2
                 local dy = screenPos.Y - vp.Y/2
                 if math.sqrt(dx*dx+dy*dy) <= lockFOV then
-                    -- Hard aimlock: snap camera to face the target head
                     Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
                 end
             end)
@@ -1326,15 +1327,10 @@ local function openLockGui()
         end
     end)
 
-    -- FOV circle update when slider moves
-    local fovUpdateConn = RunService.Heartbeat:Connect(function()
-        lockFOV = getFOV()
-    end)
-
     G.AncestryChanged:Connect(function()
         if not G.Parent then
             lockGuiRef = nil
-            fovUpdateConn:Disconnect()
+            fovConn:Disconnect()
         end
     end)
 end
@@ -1459,28 +1455,67 @@ end
 local function clearESP()
     for _, v in ipairs(espConns) do pcall(function() v:Disconnect() end) end
     espConns = {}
-    -- Remove highlights
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
             local hl = plr.Character:FindFirstChild("GhoulESP")
             if hl then hl:Destroy() end
+            -- Remove name tag
+            local head = plr.Character:FindFirstChild("Head")
+            if head then
+                local tag = head:FindFirstChild("GhoulESPTag")
+                if tag then tag:Destroy() end
+            end
         end
     end
 end
 
 local function applyESP(char)
     if not char then return end
+    -- Remove old ESP if re-applying
     local existing = char:FindFirstChild("GhoulESP"); if existing then existing:Destroy() end
-    -- Highlight shows through walls with AlwaysOnTop depth mode
+
+    -- White outline through walls
     local hl = Instance.new("Highlight")
     hl.Name = "GhoulESP"
     hl.Adornee = char
     hl.FillColor = Color3.fromRGB(0,0,0)
-    hl.FillTransparency = 1  -- outline only, no fill
+    hl.FillTransparency = 1
     hl.OutlineColor = Color3.fromRGB(255,255,255)
     hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.Parent = char
+
+    -- Name tag above head
+    local head = char:FindFirstChild("Head")
+    if head then
+        local existingTag = head:FindFirstChild("GhoulESPTag")
+        if existingTag then existingTag:Destroy() end
+
+        -- Use GetPlayerFromCharacter for reliable lookup
+        local plr = Players:GetPlayerFromCharacter(char)
+        local tagName = plr and (plr.DisplayName .. "\n@" .. plr.Name) or char.Name
+
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "GhoulESPTag"
+        bb.Size = UDim2.new(0, 150, 0, 44)
+        bb.StudsOffset = Vector3.new(0, 3, 0)
+        bb.AlwaysOnTop = true
+        bb.MaxDistance = 500
+        bb.ResetOnSpawn = false
+        bb.Parent = head
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, 0, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = tagName
+        lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+        lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        lbl.TextStrokeTransparency = 0
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 14
+        lbl.TextScaled = false
+        lbl.Parent = bb
+    end
 end
 
 local function toggleESP()
