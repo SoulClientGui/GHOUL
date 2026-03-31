@@ -969,26 +969,34 @@ local function loadFacebang() openFacebangGui() end
 -- ── HEADSIT ──────────────────────────────────────────────────
 local headsitActive  = false
 local headsitHBConn  = nil
-local headsitInpConn = nil
+local headsitGuiRef  = nil
 
 local function openHeadsitGui()
-    showToast("HeadSit ON — press X near a player")
+    if headsitGuiRef then headsitGuiRef:Destroy() headsitGuiRef = nil end
+    local G, Body = buildMiniGui("Head Sit", 270, 200, 280, 200)
+    headsitGuiRef = G
 
-    local function getNearestHRP()
-        local closest, shortest = nil, math.huge
-        local char = LocalPlayer.Character; if not char then return nil end
-        local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return nil end
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and p.Character then
-                local tHRP = p.Character:FindFirstChild("HumanoidRootPart")
-                if tHRP then
-                    local d = (tHRP.Position - hrp.Position).Magnitude
-                    if d < shortest then shortest = d; closest = tHRP end
-                end
-            end
+    local selectedHRP = nil
+
+    local SelLbl = Instance.new("TextLabel")
+    SelLbl.Size = UDim2.new(1,-28,0,18)
+    SelLbl.Position = UDim2.new(0,14,0,6)
+    SelLbl.BackgroundTransparency = 1
+    SelLbl.Text = "Select a player to sit on:"
+    SelLbl.TextColor3 = Color3.fromRGB(160,160,160)
+    SelLbl.Font = Enum.Font.Gotham
+    SelLbl.TextSize = 12
+    SelLbl.TextXAlignment = Enum.TextXAlignment.Left
+    SelLbl.ZIndex = 52
+    SelLbl.Parent = Body
+
+    -- Searchable player list — picks their HumanoidRootPart
+    makePlayerList(Body, 26, 80, function(plr)
+        if plr.Character then
+            selectedHRP = plr.Character:FindFirstChild("HumanoidRootPart")
+            SelLbl.Text = "Target: " .. plr.DisplayName
         end
-        return closest
-    end
+    end)
 
     local function stopSit()
         headsitActive = false
@@ -996,80 +1004,89 @@ local function openHeadsitGui()
         local char = LocalPlayer.Character; if not char then return end
         local hum  = char:FindFirstChildOfClass("Humanoid"); if hum then hum.Sit = false end
         local hrp  = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.Velocity    = Vector3.zero
-            hrp.RotVelocity = Vector3.zero
-        end
+        if hrp then hrp.Velocity = Vector3.zero hrp.RotVelocity = Vector3.zero end
         showToast("HeadSit OFF")
     end
 
-    local function startSit()
-        local target = getNearestHRP(); if not target then showToast("No nearby player") return end
-        local char = LocalPlayer.Character; if not char then return end
-        local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
-        local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-        headsitActive = true
-        hum.Sit = true
-        if headsitHBConn then headsitHBConn:Disconnect() end
-        headsitHBConn = RunService.Heartbeat:Connect(function()
-            if not headsitActive or not target.Parent then stopSit() return end
+    -- Sit / Stop button
+    local SitBtn = makeBtn(Body, 168, 14, "▶  Sit on Head", 242)
+    SitBtn.MouseButton1Click:Connect(function()
+        if headsitActive then
+            stopSit()
+            SitBtn.Text = "▶  Sit on Head"
+            SitBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+        else
+            if not selectedHRP or not selectedHRP.Parent then
+                showToast("Select a player first!")
+                return
+            end
+            local char = LocalPlayer.Character; if not char then return end
+            local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+            local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+            local target = selectedHRP
+            headsitActive = true
             hum.Sit = true
-            hrp.CFrame      = target.CFrame * CFrame.new(0, 3, 0)
-            hrp.Velocity    = Vector3.zero
-            hrp.RotVelocity = Vector3.zero
-        end)
-        showToast("HeadSit ON — X again to stop")
-    end
+            SitBtn.Text = "⏹  Stop Sitting"
+            SitBtn.BackgroundColor3 = Color3.fromRGB(140,30,30)
+            if headsitHBConn then headsitHBConn:Disconnect() end
+            headsitHBConn = RunService.Heartbeat:Connect(function()
+                if not headsitActive or not target.Parent then
+                    stopSit()
+                    SitBtn.Text = "▶  Sit on Head"
+                    SitBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+                    return
+                end
+                hum.Sit = true
+                hrp.CFrame      = target.CFrame * CFrame.new(0, 3, 0)
+                hrp.Velocity    = Vector3.zero
+                hrp.RotVelocity = Vector3.zero
+            end)
+            showToast("HeadSit ON — click Stop to exit")
+        end
+    end)
 
-    -- Only register the X key connection once
-    if headsitInpConn then headsitInpConn:Disconnect() end
-    headsitInpConn = UserInputService.InputBegan:Connect(function(inp, gp)
-        if gp and UserInputService:GetFocusedTextBox() then return end
-        if inp.KeyCode ~= Enum.KeyCode.X then return end
-        if headsitActive then stopSit() else startSit() end
+    G.AncestryChanged:Connect(function()
+        if not G.Parent then stopSit() end
     end)
 end
 local function toggleHeadsit() openHeadsitGui() end
 
 -- ── JERK ─────────────────────────────────────────────────────
-local jerkActive = false
-local jerkTrack  = nil
-local jerkAnim   = nil
+local jerkingEnabled = false
+local jerkingSpeed   = 0.6
+local timePosition   = 0.6
+local jerkAnim       = nil
+local jerkTrack      = nil
 
 local function toggleJerk()
-    jerkActive = not jerkActive
-    showToast(jerkActive and "Jerk  ON" or "Jerk  OFF")
+    jerkingEnabled = not jerkingEnabled
+    showToast(jerkingEnabled and "Jerk  ON" or "Jerk  OFF")
 
-    if jerkActive then
+    if jerkingEnabled then
+        if jerkTrack and jerkTrack.IsPlaying then return end
+
+        local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local humanoid  = character:FindFirstChildOfClass("Humanoid")
+
+        jerkAnim = Instance.new("Animation")
+        jerkAnim.AnimationId = "rbxassetid://698251653"
+        jerkTrack = humanoid:LoadAnimation(jerkAnim)
+
         task.spawn(function()
-            local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-            local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
-            local animator = hum:FindFirstChildOfClass("Animator"); if not animator then return end
-
-            jerkAnim = Instance.new("Animation")
-            jerkAnim.AnimationId = "rbxassetid://698251653"
-
-            local ok = pcall(function() jerkTrack = animator:LoadAnimation(jerkAnim) end)
-            if not ok or not jerkTrack then return end
-
-            jerkTrack.Priority = Enum.AnimationPriority.Action4
-            jerkTrack.Looped   = true
-            jerkTrack:Play(0)
-            jerkTrack:AdjustSpeed(0.6)
-
-            -- Keep playing while active
-            while jerkActive and jerkTrack do
-                if not jerkTrack.IsPlaying then pcall(function() jerkTrack:Play(0) end) end
+            while jerkingEnabled and jerkTrack do
+                jerkTrack:Play()
+                jerkTrack:AdjustSpeed(jerkingSpeed)
+                jerkTrack.TimePosition = timePosition
                 task.wait(0.1)
             end
         end)
     else
         if jerkTrack then
-            pcall(function() jerkTrack:Stop() end)
+            jerkTrack:Stop()
             jerkTrack = nil
         end
         if jerkAnim then
-            pcall(function() jerkAnim:Destroy() end)
+            jerkAnim:Destroy()
             jerkAnim = nil
         end
     end
@@ -1492,372 +1509,216 @@ end
 
 -- ── REANIM GUI ────────────────────────────────────────────────
 local reanimGuiRef = nil
+
+-- Snake reanim state (from the provided script)
+local snakeorder = {
+    "Head","UpperTorso","LowerTorso",
+    "LeftUpperArm","LeftLowerArm","LeftHand",
+    "RightUpperArm","RightLowerArm","RightHand",
+    "LeftUpperLeg","LeftLowerLeg","LeftFoot",
+    "RightUpperLeg","RightLowerLeg","RightFoot"
+}
+local snakeDistance    = 1.0
+local snakeSmoothing   = 0.1
+local ghostEnabled     = false
+local originalCharacter, ghostClone, originalCFrame
+local snakeUpdateConn  = nil
+local previousPositions, targetPositions = {}, {}
+
+local function updateSnakeParts()
+    if not ghostEnabled or not originalCharacter or not originalCharacter.Parent
+       or not ghostClone or not ghostClone.Parent then
+        if snakeUpdateConn then snakeUpdateConn:Disconnect() snakeUpdateConn = nil end
+        return
+    end
+    local rootPart = ghostClone:FindFirstChild("HumanoidRootPart"); if not rootPart then return end
+    local isMoving = rootPart.AssemblyLinearVelocity.Magnitude > 0.1
+    local firstPartName = snakeorder[1]
+    local firstPart = originalCharacter:FindFirstChild(firstPartName)
+    if firstPart then
+        if not targetPositions[firstPartName] then targetPositions[firstPartName] = firstPart.CFrame end
+        if not previousPositions[firstPartName] then previousPositions[firstPartName] = firstPart.CFrame end
+        if isMoving then
+            local targetCF = CFrame.new(rootPart.Position) * (rootPart.CFrame - rootPart.Position)
+            targetPositions[firstPartName] = targetCF
+        end
+        local smoothCF = previousPositions[firstPartName]:Lerp(targetPositions[firstPartName], snakeSmoothing)
+        firstPart.CFrame = smoothCF
+        firstPart.AssemblyLinearVelocity = Vector3.zero
+        firstPart.AssemblyAngularVelocity = Vector3.zero
+        previousPositions[firstPartName] = smoothCF
+        for i = 2, #snakeorder do
+            local partName = snakeorder[i]
+            local currentPart  = originalCharacter:FindFirstChild(partName)
+            local previousPart = originalCharacter:FindFirstChild(snakeorder[i-1])
+            if currentPart and previousPart then
+                if not targetPositions[partName] then targetPositions[partName] = currentPart.CFrame end
+                if not previousPositions[partName] then previousPositions[partName] = currentPart.CFrame end
+                if isMoving then
+                    local prevPartPos = previousPart.Position
+                    local prevPartRot = previousPart.CFrame - previousPart.Position
+                    local directionVector
+                    if i == 2 then
+                        directionVector = (prevPartPos - rootPart.Position).Unit
+                    else
+                        local beforePreviousPart = originalCharacter:FindFirstChild(snakeorder[i-2])
+                        if beforePreviousPart then
+                            directionVector = (prevPartPos - beforePreviousPart.Position).Unit
+                        else
+                            directionVector = prevPartRot.LookVector
+                        end
+                    end
+                    if directionVector.Magnitude < 0.1 then directionVector = prevPartRot.LookVector end
+                    local targetPosition = prevPartPos + directionVector * snakeDistance
+                    targetPositions[partName] = CFrame.new(targetPosition) * prevPartRot
+                end
+                local smoothCF2 = previousPositions[partName]:Lerp(targetPositions[partName], snakeSmoothing)
+                currentPart.CFrame = smoothCF2
+                currentPart.AssemblyLinearVelocity = Vector3.zero
+                currentPart.AssemblyAngularVelocity = Vector3.zero
+                previousPositions[partName] = smoothCF2
+            end
+        end
+    end
+end
+
+local function setSnakeEnabled(newState)
+    ghostEnabled = newState
+    if ghostEnabled then
+        local char = LocalPlayer.Character; if not char then return end
+        local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not root then return end
+        if originalCharacter or ghostClone then return end
+        originalCharacter = char
+        originalCFrame = root.CFrame
+        char.Archivable = true
+        ghostClone = char:Clone()
+        char.Archivable = false
+        ghostClone.Name = originalCharacter.Name .. "_clone"
+        local ghostHumanoid = ghostClone:FindFirstChildWhichIsA("Humanoid")
+        if ghostHumanoid then
+            ghostHumanoid.DisplayName = originalCharacter.Name .. "_clone"
+            ghostHumanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        end
+        if not ghostClone.PrimaryPart then
+            local hrp = ghostClone:FindFirstChild("HumanoidRootPart")
+            if hrp then ghostClone.PrimaryPart = hrp end
+        end
+        for _, part in ipairs(ghostClone:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 1; part.CanCollide = false
+                part.Anchored = false; part.CanQuery = false
+            elseif part:IsA("Decal") then
+                part.Transparency = 1
+            elseif part:IsA("Accessory") then
+                local handle = part:FindFirstChild("Handle")
+                if handle then
+                    handle.Transparency = 1; handle.CanCollide = false; handle.CanQuery = false
+                end
+            end
+        end
+        local animate = originalCharacter:FindFirstChild("Animate")
+        if animate then animate.Disabled = true; animate.Parent = ghostClone end
+        ghostClone.Parent = workspace
+        LocalPlayer.Character = ghostClone
+        if ghostHumanoid then workspace.CurrentCamera.CameraSubject = ghostHumanoid end
+        if animate and animate.Parent == ghostClone then animate.Disabled = false end
+        -- Try game-specific ragdoll events
+        pcall(function()
+            game:GetService("ReplicatedStorage").Events.RagdollState:FireServer(true)
+        end)
+        targetPositions = {}; previousPositions = {}
+        if snakeUpdateConn then snakeUpdateConn:Disconnect() end
+        snakeUpdateConn = RunService.Heartbeat:Connect(updateSnakeParts)
+    else
+        if not originalCharacter or not ghostClone then return end
+        if snakeUpdateConn then snakeUpdateConn:Disconnect() snakeUpdateConn = nil end
+        pcall(function()
+            game:GetService("ReplicatedStorage").Events.RagdollState:FireServer(false)
+        end)
+        local targetCF = originalCFrame
+        local ghostPrimary = ghostClone.PrimaryPart
+        if ghostPrimary then targetCF = ghostPrimary.CFrame end
+        local animate = ghostClone:FindFirstChild("Animate")
+        if animate then animate.Disabled = true; animate.Parent = originalCharacter end
+        ghostClone:Destroy(); ghostClone = nil
+        if originalCharacter and originalCharacter.Parent then
+            local origRoot = originalCharacter:FindFirstChild("HumanoidRootPart")
+            local origHumanoid = originalCharacter:FindFirstChildWhichIsA("Humanoid")
+            if origRoot then
+                origRoot.CFrame = targetCF
+                origRoot.AssemblyLinearVelocity = Vector3.zero
+                origRoot.AssemblyAngularVelocity = Vector3.zero
+            end
+            LocalPlayer.Character = originalCharacter
+            if origHumanoid then
+                workspace.CurrentCamera.CameraSubject = origHumanoid
+                origHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+            if animate and animate.Parent == originalCharacter then
+                task.wait(0.1); animate.Disabled = false
+            end
+        end
+        originalCharacter = nil
+    end
+end
+
 local function openReanimGui()
     if reanimGuiRef then reanimGuiRef:Destroy() reanimGuiRef = nil end
-
-    local G, Body = buildMiniGui("Reanimation", 320, 460, 300, 120)
+    local G, Body = buildMiniGui("Reanimation", 280, 200, 300, 120)
     reanimGuiRef = G
 
-    -- Real Roblox animation IDs — using confirmed working catalog IDs
-    local DANCE_IDS = {
-        -- Default moves
-        ["Default Walk"]            = 180426354,
-        ["Default Run"]             = 180426354,
-        ["Default Jump"]            = 125750702,
-        ["Default Idle"]            = 180435571,
-        ["Default Climb"]           = 180436334,
-        ["Default Fall"]            = 180436148,
-        ["Default Swim"]            = 180436334,
-        -- Hype / popular
-        ["Griddy"]                  = 7715197912,
-        ["Hype"]                    = 3360686498,
-        ["Floss"]                   = 2767401612,
-        ["Dab"]                     = 3061010393,
-        ["Twerk"]                   = 5885805184,
-        ["Renegade"]                = 6697285586,
-        ["Whoa"]                    = 6696096033,
-        ["Woah"]                    = 6696096033,
-        ["Nae Nae"]                 = 2767401612,
-        ["Whip"]                    = 2767401612,
-        ["Shoot"]                   = 6697285586,
-        ["Shoot Dance"]             = 6697285586,
-        ["Orange Justice"]          = 3576829248,
-        ["Fresh"]                   = 3360686498,
-        -- Meme / viral
-        ["Gangnam Style"]           = 3576829248,
-        ["Harlem Shake"]            = 6697285586,
-        ["Cha Cha Slide"]           = 3576829248,
-        ["Running Man"]             = 180426354,
-        ["Macarena"]                = 3576829248,
-        ["YMCA"]                    = 6696096033,
-        ["Cotton Eye Joe"]          = 3576829248,
-        ["Coffin Dance"]            = 6697285586,
-        ["Rickroll"]                = 3360686498,
-        ["Fortnite Default"]        = 2767401612,
-        ["Fortnite Floss"]          = 2767401612,
-        ["Fortnite Orange Justice"] = 3576829248,
-        -- Smooth / classic
-        ["Moonwalk"]                = 182393478,
-        ["Robot"]                   = 3061010393,
-        ["Worm"]                    = 6697285586,
-        ["Windmill"]                = 6696096033,
-        ["Backflip"]                = 1117217380,
-        ["Carlton"]                 = 3576829248,
-        ["Samba"]                   = 182393478,
-        ["Salsa"]                   = 3576829248,
-        ["Disco"]                   = 6696096033,
-        ["Shuffle"]                 = 3576829248,
-        ["Dougie"]                  = 3061010393,
-        ["Wave"]                    = 6697285586,
-        ["Bounce"]                  = 3360686498,
-        -- TikTok / viral
-        ["Savage"]                  = 3576829248,
-        ["WAP"]                     = 6697285586,
-        ["Up"]                      = 6696096033,
-        ["Blinding Lights"]         = 3576829248,
-        ["Toosie Slide"]            = 3576829248,
-        ["Lottery"]                 = 3360686498,
-        ["Cannibal"]                = 3576829248,
-        ["Do Your Thang"]           = 6696096033,
-        ["Laffy Taffy"]             = 3576829248,
-        -- Idle / chill
-        ["Lean"]                    = 180435571,
-        ["Headbang"]                = 6697285586,
-        ["Air Guitar"]              = 3360686498,
-        ["Finger Gun"]              = 3061010393,
-        ["Clap"]                    = 3061010393,
-        ["Snap"]                    = 3061010393,
-        ["Point"]                   = 3061010393,
-        ["Shrug"]                   = 180435571,
-        ["Facepalm"]                = 180435571,
-        -- Extras
-        ["Backpack Kid"]            = 2767401612,
-        ["Pen Pineapple"]           = 3576829248,
-        ["Juju"]                    = 6696096033,
-        ["Dagger"]                  = 3576829248,
-        ["Go Stupid"]               = 6697285586,
-        ["Sped Up Walk"]            = 180426354,
-    }
+    -- Title info
+    local InfoLbl = Instance.new("TextLabel")
+    InfoLbl.Size = UDim2.new(1,-28,0,36)
+    InfoLbl.Position = UDim2.new(0,14,0,8)
+    InfoLbl.BackgroundTransparency = 1
+    InfoLbl.Text = "Snake Reanimation\nMakes your character snake-like while moving"
+    InfoLbl.TextColor3 = Color3.fromRGB(150,150,150)
+    InfoLbl.Font = Enum.Font.Gotham
+    InfoLbl.TextSize = 12
+    InfoLbl.TextXAlignment = Enum.TextXAlignment.Left
+    InfoLbl.TextWrapped = true
+    InfoLbl.ZIndex = 52
+    InfoLbl.Parent = Body
 
-    local currentAnimTrack = nil
-    local currentRow       = nil
-    local danceLoopConn    = nil
+    -- Distance slider
+    local _, getDist = makeSlider(Body, 52, "Snake Distance", 1, 100, 10)
 
-    local function playDance(animId, row, animName)
-        if danceLoopConn then danceLoopConn:Disconnect() danceLoopConn = nil end
-        if currentAnimTrack then
-            pcall(function() currentAnimTrack:Stop(0) end)
-            currentAnimTrack = nil
+    -- Smoothing slider  
+    local _, getSmooth = makeSlider(Body, 110, "Smoothing", 1, 20, 1)
+
+    -- Snake toggle button
+    local SnakeBtn = makeBtn(Body, 170, 14, "🐍  Enable Snake Reanim", 252)
+    SnakeBtn.BackgroundColor3 = Color3.fromRGB(20, 80, 20)
+    SnakeBtn.MouseEnter:Connect(function()
+        if not ghostEnabled then
+            TweenService:Create(SnakeBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(30,110,30)}):Play()
         end
-        if currentRow and currentRow ~= row then
-            TweenService:Create(currentRow, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22,22,22)}):Play()
-        end
-        currentRow = row
-        TweenService:Create(row, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(25,55,25)}):Play()
-        showToast("▶ " .. animName)
-
-        task.spawn(function()
-            local char = LocalPlayer.Character
-            if not char then showToast("No character!") return end
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if not hum then showToast("No humanoid!") return end
-
-            -- Wait for existing animator — never create a new one (breaks replication)
-            local animator = hum:FindFirstChildOfClass("Animator")
-            if not animator then
-                task.wait(0.2)
-                animator = hum:FindFirstChildOfClass("Animator")
-            end
-            if not animator then showToast("No Animator found") return end
-
-            -- Kill every currently playing track so nothing overrides the dance
-            for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
-                pcall(function() t:Stop(0) end)
-            end
-            task.wait(0.05)
-
-            local anim = Instance.new("Animation")
-            anim.AnimationId = "rbxassetid://" .. tostring(animId)
-            -- Do NOT parent anim to character — it breaks LoadAnimation in some games
-
-            local track
-            local ok = pcall(function()
-                track = animator:LoadAnimation(anim)
-            end)
-            if not ok or not track then
-                ok = pcall(function() track = hum:LoadAnimation(anim) end)
-            end
-            if not ok or not track then
-                showToast("Failed: " .. animName)
-                return
-            end
-
-            track.Priority = Enum.AnimationPriority.Action4
-            track.Looped   = true
-            track:AdjustSpeed(1)
-            track:Play(0)   -- 0 = instant, no fade, plays immediately
-            currentAnimTrack = track
-
-            -- Heartbeat loop-keeper: restart if anything stops it
-            danceLoopConn = RunService.Heartbeat:Connect(function()
-                if not currentAnimTrack or currentAnimTrack ~= track then
-                    if danceLoopConn then danceLoopConn:Disconnect() danceLoopConn = nil end
-                    return
-                end
-                if not track.IsPlaying then
-                    pcall(function() track:Play(0) end)
-                end
-            end)
-        end)
-    end
-
-    local function stopDance()
-        if danceLoopConn then danceLoopConn:Disconnect() danceLoopConn = nil end
-        if currentAnimTrack then
-            pcall(function() currentAnimTrack:Stop(0.15) end)
-            currentAnimTrack = nil
-        end
-        if currentRow then
-            TweenService:Create(currentRow, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(22,22,22)}):Play()
-            currentRow = nil
-        end
-        showToast("⏹ Stopped")
-    end
-
-    -- Stop button at top
-    local StopBtn = Instance.new("TextButton")
-    StopBtn.Size = UDim2.new(0, 82, 0, 40)
-    StopBtn.Position = UDim2.new(1, -96, 0, 8)
-    StopBtn.BackgroundColor3 = Color3.fromRGB(160, 30, 30)
-    StopBtn.Text = "⏹ Stop"
-    StopBtn.TextColor3 = Color3.fromRGB(255,255,255)
-    StopBtn.Font = Enum.Font.GothamBold
-    StopBtn.TextSize = 13
-    StopBtn.BorderSizePixel = 0
-    StopBtn.ZIndex = 52
-    StopBtn.Parent = Body
-    makeCorner(StopBtn, 9)
-    StopBtn.MouseEnter:Connect(function()
-        TweenService:Create(StopBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(200,40,40)}):Play()
     end)
-    StopBtn.MouseLeave:Connect(function()
-        TweenService:Create(StopBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(160,30,30)}):Play()
+    SnakeBtn.MouseLeave:Connect(function()
+        local col = ghostEnabled and Color3.fromRGB(80,20,20) or Color3.fromRGB(20,80,20)
+        TweenService:Create(SnakeBtn, TweenInfo.new(0.1), {BackgroundColor3 = col}):Play()
     end)
-    StopBtn.MouseButton1Click:Connect(stopDance)
-
-    -- Status label
-    local StatusLbl = Instance.new("TextLabel")
-    StatusLbl.Size = UDim2.new(1, -110, 0, 40)
-    StatusLbl.Position = UDim2.new(0, 14, 0, 8)
-    StatusLbl.BackgroundTransparency = 1
-    StatusLbl.Text = "Click a dance to play it"
-    StatusLbl.TextColor3 = Color3.fromRGB(140,140,140)
-    StatusLbl.Font = Enum.Font.Gotham
-    StatusLbl.TextSize = 12
-    StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
-    StatusLbl.TextWrapped = true
-    StatusLbl.ZIndex = 52
-    StatusLbl.Parent = Body
-
-    -- Divider
-    local Div = Instance.new("Frame")
-    Div.Size = UDim2.new(1,-28,0,1)
-    Div.Position = UDim2.new(0,14,0,56)
-    Div.BackgroundColor3 = Color3.fromRGB(45,45,45)
-    Div.BorderSizePixel = 0
-    Div.ZIndex = 52
-    Div.Parent = Body
-
-    -- Search bar
-    local SFrame = Instance.new("Frame")
-    SFrame.Size = UDim2.new(1,-28,0,34)
-    SFrame.Position = UDim2.new(0,14,0,65)
-    SFrame.BackgroundColor3 = Color3.fromRGB(22,22,22)
-    SFrame.ZIndex = 52
-    SFrame.Parent = Body
-    makeCorner(SFrame,8)
-    makeStroke(SFrame,Color3.fromRGB(50,50,50),1)
-
-    local SearchBox = Instance.new("TextBox")
-    SearchBox.Size = UDim2.new(1,-16,1,0)
-    SearchBox.Position = UDim2.new(0,10,0,0)
-    SearchBox.BackgroundTransparency = 1
-    SearchBox.PlaceholderText = "Search dances..."
-    SearchBox.PlaceholderColor3 = Color3.fromRGB(75,75,75)
-    SearchBox.Text = ""
-    SearchBox.TextColor3 = Color3.fromRGB(210,210,210)
-    SearchBox.Font = Enum.Font.Gotham
-    SearchBox.TextSize = 13
-    SearchBox.TextXAlignment = Enum.TextXAlignment.Left
-    SearchBox.ClearTextOnFocus = false
-    SearchBox.ZIndex = 53
-    SearchBox.Parent = SFrame
-
-    -- Scroll list
-    local Scroll = Instance.new("ScrollingFrame")
-    Scroll.Size = UDim2.new(1,-28,1,-110)
-    Scroll.Position = UDim2.new(0,14,0,107)
-    Scroll.BackgroundTransparency = 1
-    Scroll.BorderSizePixel = 0
-    Scroll.ScrollBarThickness = 3
-    Scroll.ScrollBarImageColor3 = Color3.fromRGB(70,70,70)
-    Scroll.CanvasSize = UDim2.new(0,0,0,0)
-    Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    Scroll.ZIndex = 52
-    Scroll.Parent = Body
-
-    local LL = Instance.new("UIListLayout")
-    LL.SortOrder = Enum.SortOrder.LayoutOrder
-    LL.Padding = UDim.new(0,4)
-    LL.Parent = Scroll
-
-    local DANCE_CATS = {
-        { cat = "DEFAULT MOVES",    items = {"Default Walk","Default Run","Default Jump","Default Idle","Default Climb","Default Fall","Default Swim"} },
-        { cat = "HYPE DANCES",      items = {"Griddy","Hype","Floss","Dab","Twerk","Renegade","Whoa","Woah","Nae Nae","Whip","Shoot","Shoot Dance","Orange Justice","Fresh"} },
-        { cat = "MEME DANCES",      items = {"Gangnam Style","Harlem Shake","Cha Cha Slide","Running Man","Macarena","YMCA","Cotton Eye Joe","Coffin Dance","Rickroll","Fortnite Default","Fortnite Floss","Fortnite Orange Justice"} },
-        { cat = "SMOOTH / CLASSIC", items = {"Moonwalk","Robot","Worm","Windmill","Backflip","Carlton","Samba","Salsa","Disco","Shuffle","Dougie","Wave","Bounce"} },
-        { cat = "TIKTOK / VIRAL",   items = {"Savage","WAP","Up","Blinding Lights","Toosie Slide","Lottery","Cannibal","Do Your Thang","Laffy Taffy"} },
-        { cat = "IDLE / CHILL",     items = {"Lean","Headbang","Air Guitar","Finger Gun","Clap","Snap","Point","Shrug","Facepalm"} },
-        { cat = "EXTRAS",           items = {"Backpack Kid","Pen Pineapple","Juju","Dagger","Go Stupid","Sped Up Walk"} },
-    }
-
-    local function buildDanceRows(filter)
-        for _, c in ipairs(Scroll:GetChildren()) do
-            if c:IsA("Frame") or c:IsA("TextLabel") or c:IsA("TextButton") then c:Destroy() end
+    SnakeBtn.MouseButton1Click:Connect(function()
+        snakeDistance  = getDist() / 10  -- scale 1-100 → 0.1-10
+        snakeSmoothing = getSmooth() / 100  -- scale 1-20 → 0.01-0.2
+        setSnakeEnabled(not ghostEnabled)
+        if ghostEnabled then
+            SnakeBtn.Text = "🐍  Disable Snake Reanim"
+            SnakeBtn.BackgroundColor3 = Color3.fromRGB(80,20,20)
+            showToast("Snake Reanim ON")
+        else
+            SnakeBtn.Text = "🐍  Enable Snake Reanim"
+            SnakeBtn.BackgroundColor3 = Color3.fromRGB(20,80,20)
+            showToast("Snake Reanim OFF")
         end
-        local order = 0
-        local q = (filter or ""):lower()
-        for _, group in ipairs(DANCE_CATS) do
-            local visible = {}
-            for _, item in ipairs(group.items) do
-                if q == "" or item:lower():find(q,1,true) then
-                    table.insert(visible, item)
-                end
-            end
-            if #visible > 0 then
-                local CatLbl = Instance.new("TextLabel")
-                CatLbl.Size = UDim2.new(1,0,0,22)
-                CatLbl.BackgroundTransparency = 1
-                CatLbl.Text = group.cat
-                CatLbl.TextColor3 = Color3.fromRGB(130,130,130)
-                CatLbl.Font = Enum.Font.GothamBold
-                CatLbl.TextSize = 10
-                CatLbl.TextXAlignment = Enum.TextXAlignment.Left
-                CatLbl.ZIndex = 53
-                CatLbl.LayoutOrder = order
-                CatLbl.Parent = Scroll
-                order += 1
-
-                for _, animName in ipairs(visible) do
-                    local animId = DANCE_IDS[animName] or 180435571
-
-                    local Row = Instance.new("TextButton")
-                    Row.Size = UDim2.new(1,0,0,36)
-                    Row.BackgroundColor3 = Color3.fromRGB(22,22,22)
-                    Row.BorderSizePixel = 0
-                    Row.Text = ""
-                    Row.AutoButtonColor = false
-                    Row.ZIndex = 53
-                    Row.LayoutOrder = order
-                    Row.Parent = Scroll
-                    makeCorner(Row,7)
-                    makeStroke(Row,Color3.fromRGB(34,34,34),1)
-                    order += 1
-
-                    Row.MouseEnter:Connect(function()
-                        if Row ~= currentRow then
-                            TweenService:Create(Row,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(30,30,30)}):Play()
-                        end
-                    end)
-                    Row.MouseLeave:Connect(function()
-                        if Row ~= currentRow then
-                            TweenService:Create(Row,TweenInfo.new(0.1),{BackgroundColor3=Color3.fromRGB(22,22,22)}):Play()
-                        end
-                    end)
-                    Row.MouseButton1Click:Connect(function()
-                        playDance(animId, Row, animName)
-                        StatusLbl.Text = "▶ Playing: "..animName
-                    end)
-
-                    local Lbl = Instance.new("TextLabel")
-                    Lbl.Size = UDim2.new(1,-36,1,0)
-                    Lbl.Position = UDim2.new(0,12,0,0)
-                    Lbl.BackgroundTransparency = 1
-                    Lbl.Text = animName
-                    Lbl.TextColor3 = Color3.fromRGB(205,205,205)
-                    Lbl.Font = Enum.Font.Gotham
-                    Lbl.TextSize = 13
-                    Lbl.TextXAlignment = Enum.TextXAlignment.Left
-                    Lbl.ZIndex = 54
-                    Lbl.Parent = Row
-
-                    local PlayLbl = Instance.new("TextLabel")
-                    PlayLbl.Size = UDim2.new(0,22,1,0)
-                    PlayLbl.Position = UDim2.new(1,-24,0,0)
-                    PlayLbl.BackgroundTransparency = 1
-                    PlayLbl.Text = "▶"
-                    PlayLbl.TextColor3 = Color3.fromRGB(65,65,65)
-                    PlayLbl.Font = Enum.Font.GothamBold
-                    PlayLbl.TextSize = 11
-                    PlayLbl.ZIndex = 54
-                    PlayLbl.Parent = Row
-                end
-            end
-        end
-    end
-
-    buildDanceRows()
-    SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-        buildDanceRows(SearchBox.Text)
     end)
 
-    -- Stop animation and loop-keeper when GUI is closed
     G.AncestryChanged:Connect(function()
-        if not G.Parent then
-            if danceLoopConn then danceLoopConn:Disconnect() danceLoopConn = nil end
-            if currentAnimTrack then
-                pcall(function() currentAnimTrack:Stop(0) end)
-            end
+        if not G.Parent and ghostEnabled then
+            setSnakeEnabled(false)
         end
     end)
 end
@@ -2044,121 +1905,25 @@ local function loadEmotes()
 end
 
 -- ── FLASH TELEPORT (;ftp) ─────────────────────────────────────
--- Toggle with ;ftp — while active press F to teleport to mouse.
--- On teleport: flash sound + red blood drips down the screen.
+-- Toggle with ;ftp — while active press F to teleport to mouse silently.
 local ftpActive = false
 local ftpConn   = nil
 local ftpMouse  = LocalPlayer:GetMouse()
 
--- Flash + whoosh sound on teleport
-local function playFTPSound()
-    -- Whoosh / flash SFX
-    local whoosh = Instance.new("Sound")
-    whoosh.SoundId  = "rbxassetid://4612375922"  -- fast whoosh
-    whoosh.Volume   = 1.0
-    whoosh.Parent   = workspace
-    whoosh:Play()
-    game:GetService("Debris"):AddItem(whoosh, 3)
-
-    -- Blood splatter SFX
-    local blood = Instance.new("Sound")
-    blood.SoundId = "rbxassetid://5221257759"
-    blood.Volume  = 0.85
-    blood.Parent  = workspace
-    blood:Play()
-    game:GetService("Debris"):AddItem(blood, 3)
-end
-
--- Spawn red blood drips sliding down the screen
-local function spawnBloodEffect()
-    local BGui = Instance.new("ScreenGui")
-    BGui.Name            = "GhoulBloodEffect"
-    BGui.ResetOnSpawn    = false
-    BGui.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
-    BGui.IgnoreGuiInset  = true
-    BGui.Parent          = PlayerGui
-
-    -- Red flash overlay — sharp hit then fades
-    local Flash = Instance.new("Frame")
-    Flash.Size                  = UDim2.new(1, 0, 1, 0)
-    Flash.BackgroundColor3      = Color3.fromRGB(160, 0, 0)
-    Flash.BackgroundTransparency = 0.25
-    Flash.BorderSizePixel       = 0
-    Flash.ZIndex                = 990
-    Flash.Parent                = BGui
-
-    TweenService:Create(Flash, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        BackgroundTransparency = 1
-    }):Play()
-
-    -- Spawn several blood drip strips across the top of the screen
-    local NUM_DRIPS = 14
-    for i = 1, NUM_DRIPS do
-        local xPos   = math.random(0, 95) / 100   -- random horizontal position
-        local width  = math.random(12, 38)          -- drip width in px
-        local height = math.random(120, 340)        -- drip drop distance in px
-        local delay  = math.random(0, 18) / 100     -- slight stagger
-
-        local Drip = Instance.new("Frame")
-        Drip.Size                  = UDim2.new(0, width, 0, 0)
-        Drip.Position              = UDim2.new(xPos, 0, 0, 0)
-        Drip.BackgroundColor3      = Color3.fromRGB(
-            math.random(140, 200), 0, 0)            -- slightly varied red
-        Drip.BackgroundTransparency = 0
-        Drip.BorderSizePixel       = 0
-        Drip.ZIndex                = 991
-        Drip.Parent                = BGui
-
-        -- Rounded bottom on each drip
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = Drip
-
-        -- Animate drip growing downward
-        task.delay(delay, function()
-            TweenService:Create(Drip, TweenInfo.new(
-                math.random(25, 55) / 100,          -- 0.25 – 0.55 s fall
-                Enum.EasingStyle.Quad,
-                Enum.EasingDirection.Out
-            ), { Size = UDim2.new(0, width, 0, height) }):Play()
-
-            -- Then fade the drip out
-            task.delay(0.4, function()
-                TweenService:Create(Drip, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                    BackgroundTransparency = 1
-                }):Play()
-            end)
-        end)
-    end
-
-    -- Destroy the whole effect gui after it's done
-    task.delay(1.2, function()
-        BGui:Destroy()
-    end)
-end
-
 local function toggleFTP()
-    -- Always clean up any previous connection first
     if ftpConn then ftpConn:Disconnect() ftpConn = nil end
-
     ftpActive = not ftpActive
     showToast(ftpActive and ";ftp  ON  —  press F to teleport" or ";ftp  OFF")
-
     if not ftpActive then return end
 
     ftpConn = UserInputService.InputBegan:Connect(function(inp, gameProcessed)
-        -- Only block if a TextBox is focused (so chat doesn't interfere),
-        -- but still fire even if Roblox marks it as game-processed
         if gameProcessed and UserInputService:GetFocusedTextBox() then return end
         if inp.KeyCode ~= Enum.KeyCode.F then return end
         if not ftpActive then return end
 
-        local myChar = LocalPlayer.Character
-        if not myChar then return end
-        local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-        if not myHRP then return end
+        local myChar = LocalPlayer.Character; if not myChar then return end
+        local myHRP  = myChar:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
 
-        -- Raycast excluding own character so we don't land inside ourselves
         local params = RaycastParams.new()
         params.FilterDescendantsInstances = {myChar}
         params.FilterType = Enum.RaycastFilterType.Exclude
@@ -2174,8 +1939,6 @@ local function toggleFTP()
         end
 
         myHRP.CFrame = CFrame.new(target)
-        playFTPSound()
-        spawnBloodEffect()
     end)
 end
 
