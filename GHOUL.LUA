@@ -56,6 +56,8 @@ local COMMANDS = {
     { cat = "VISUAL",   key = ";reanim",    desc = "Open reanimation dance menu" },
     { cat = "VISUAL",   key = ";baseplate", desc = "Expand baseplate + colour picker" },
     { cat = "MISC",     key = ";chat",      desc = "Send a chat message" },
+    { cat = "MISC",     key = ";hide",      desc = ";hide [name] — hide player + VC" },
+    { cat = "MISC",     key = ";unhide",    desc = ";unhide [name] — unhide player + VC" },
     { cat = "MISC",     key = ";shaders",   desc = "Load post-processing shaders" },
     { cat = "MISC",     key = ";gravity",   desc = "Set gravity [n]" },
     { cat = "MISC",     key = ";ftp",       desc = "Flash-TP to mouse on F key" },
@@ -1055,42 +1057,42 @@ local function toggleHeadsit() openHeadsitGui() end
 -- ── JERK ─────────────────────────────────────────────────────
 local jerkingEnabled = false
 local jerkingSpeed   = 0.6
-local timePosition   = 0.6
 local jerkAnim       = nil
 local jerkTrack      = nil
 local jerkGuiRef     = nil
-local jerkTool       = nil  -- hotbar tool
+local jerkTool       = nil
+local jerkSpeedConn  = nil  -- heartbeat that updates speed live
 
 local function startJerk()
-    if jerkTrack and jerkTrack.IsPlaying then return end
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local humanoid  = character:FindFirstChildOfClass("Humanoid"); if not humanoid then return end
+    local animator  = humanoid:FindFirstChildOfClass("Animator"); if not animator then return end
+
     jerkAnim = Instance.new("Animation")
     jerkAnim.AnimationId = "rbxassetid://698251653"
-    jerkTrack = humanoid:LoadAnimation(jerkAnim)
-    task.spawn(function()
-        while jerkingEnabled and jerkTrack do
-            jerkTrack:Play()
-            jerkTrack:AdjustSpeed(jerkingSpeed)
-            jerkTrack.TimePosition = timePosition
-            task.wait(0.1)
-        end
-    end)
+
+    local ok = pcall(function() jerkTrack = animator:LoadAnimation(jerkAnim) end)
+    if not ok or not jerkTrack then return end
+
+    -- Play ONCE with looping — no task.spawn loop needed
+    jerkTrack.Looped = true
+    jerkTrack:Play(0)
+    jerkTrack:AdjustSpeed(jerkingSpeed)
 end
 
 local function stopJerk()
-    if jerkTrack then jerkTrack:Stop() jerkTrack = nil end
-    if jerkAnim  then jerkAnim:Destroy() jerkAnim = nil end
+    if jerkSpeedConn then jerkSpeedConn:Disconnect() jerkSpeedConn = nil end
+    if jerkTrack then pcall(function() jerkTrack:Stop(0) end) jerkTrack = nil end
+    if jerkAnim  then pcall(function() jerkAnim:Destroy() end) jerkAnim = nil end
 end
 
 local function openJerkGui()
     if jerkGuiRef then jerkGuiRef:Destroy() jerkGuiRef = nil end
-    local G, Body = buildMiniGui("Ghoul JRK", 270, 140, 240, 210)
+    local G, Body = buildMiniGui("Ghoul JRK", 270, 110, 240, 210)
     jerkGuiRef = G
 
-    local SpeedSlider, getSpeed = makeSlider(Body, 8, "Jerk Speed", 1, 30, 6)
+    local _, getSpeed = makeSlider(Body, 8, "Jerk Speed", 1, 30, 6)
 
-    -- Toggle button
     local JBtn = makeBtn(Body, 68, 14, jerkingEnabled and "⏹ Stop Jerk" or "▶  Start Jerk", 242)
     JBtn.BackgroundColor3 = jerkingEnabled and Color3.fromRGB(140,30,30) or Color3.fromRGB(35,35,35)
 
@@ -1099,53 +1101,28 @@ local function openJerkGui()
         JBtn.BackgroundColor3 = jerkingEnabled and Color3.fromRGB(140,30,30) or Color3.fromRGB(35,35,35)
     end
 
+    -- Live speed update via heartbeat — zero overhead, just calls AdjustSpeed
+    if jerkSpeedConn then jerkSpeedConn:Disconnect() end
+    jerkSpeedConn = RunService.Heartbeat:Connect(function()
+        if not jerkingEnabled or not jerkTrack then return end
+        local spd = getSpeed() / 10  -- 1-30 → 0.1-3.0
+        if spd ~= jerkingSpeed then
+            jerkingSpeed = spd
+            pcall(function() jerkTrack:AdjustSpeed(jerkingSpeed) end)
+        end
+    end)
+
     JBtn.MouseButton1Click:Connect(function()
         jerkingEnabled = not jerkingEnabled
-        jerkingSpeed = getSpeed() / 10  -- slider 1-30 → speed 0.1-3.0
+        jerkingSpeed = getSpeed() / 10
         showToast(jerkingEnabled and "Jerk ON" or "Jerk OFF")
         if jerkingEnabled then startJerk() else stopJerk() end
         updateJBtn()
     end)
 
-    -- Keep speed live
-    SpeedSlider:GetPropertyChangedSignal("Visible"):Connect(function() end) -- dummy to keep ref
-    -- Update speed on slider change happens via getSpeed() called in heartbeat below
-
     G.AncestryChanged:Connect(function()
         if not G.Parent then jerkGuiRef = nil end
     end)
-
-    -- Create Ghoul JRK tool in hotbar
-    if jerkTool then jerkTool:Destroy() jerkTool = nil end
-    local tool = Instance.new("Tool")
-    tool.Name = "Ghoul JRK"
-    tool.RequiresHandle = false
-    tool.ToolTip = "Equip to toggle Jerk animation"
-    tool.CanBeDropped = false
-
-    -- Equip = start jerk, unequip = stop jerk
-    tool.Equipped:Connect(function()
-        if not jerkingEnabled then
-            jerkingEnabled = true
-            jerkingSpeed = getSpeed() / 10
-            startJerk()
-            showToast("Jerk ON (tool equipped)")
-            updateJBtn()
-        end
-    end)
-    tool.Unequipped:Connect(function()
-        if jerkingEnabled then
-            jerkingEnabled = false
-            stopJerk()
-            showToast("Jerk OFF (tool unequipped)")
-            updateJBtn()
-        end
-    end)
-
-    -- Add to backpack
-    tool.Parent = LocalPlayer.Backpack
-    jerkTool = tool
-    showToast("Ghoul JRK added to hotbar!")
 end
 
 local function toggleJerk() openJerkGui() end
@@ -1312,14 +1289,30 @@ local function openLockGui()
                 lockFOV = getFOV()
                 local target = lockTarget or getTargetInFOV()
                 if not target or not target.Character then return end
-                local head = target.Character:FindFirstChild("Head"); if not head then return end
-                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                local head = target.Character:FindFirstChild("Head")
+                local hrp  = target.Character:FindFirstChild("HumanoidRootPart")
+                if not head or not hrp then return end
+
+                -- Velocity prediction: estimate where the head will be next frame
+                -- based on current velocity and distance (ping compensation)
+                local velocity   = hrp.AssemblyLinearVelocity
+                local dist       = (Camera.CFrame.Position - head.Position).Magnitude
+                -- Time for a bullet to travel: approx dist / 2000 studs/s (generic)
+                -- For prediction we just use a fixed small lookahead based on distance
+                local ping       = 0.06 -- ~60ms average, can be tuned
+                local lookahead  = ping + (dist / 2000)
+                local predicted  = head.Position + velocity * lookahead
+
+                -- Only lock if predicted position is within FOV
+                local screenPos, onScreen = Camera:WorldToViewportPoint(predicted)
                 if not onScreen then return end
                 local vp = Camera.ViewportSize
                 local dx = screenPos.X - vp.X/2
                 local dy = screenPos.Y - vp.Y/2
-                if math.sqrt(dx*dx+dy*dy) <= lockFOV then
-                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
+                if math.sqrt(dx*dx + dy*dy) <= lockFOV then
+                    -- Smooth snap to predicted position
+                    local aimCF = CFrame.new(Camera.CFrame.Position, predicted)
+                    Camera.CFrame = Camera.CFrame:Lerp(aimCF, 0.35)
                 end
             end)
         else
@@ -1773,6 +1766,117 @@ local function openChatGui()
 end
 
 -- ── SHADERS ──────────────────────────────────────────────────
+-- ── HIDE / UNHIDE PLAYER ─────────────────────────────────────
+local hiddenPlayers = {}  -- [userId] = { parts = {...}, transparency = {...}, vcGui = vcGui }
+
+local function findPlayerByName(name)
+    name = name:lower()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Name:lower() == name or plr.DisplayName:lower() == name
+           or plr.Name:lower():sub(1,#name) == name then
+            return plr
+        end
+    end
+    return nil
+end
+
+local function hidePlayer(name)
+    local plr = findPlayerByName(name)
+    if not plr then showToast("Player not found: "..name) return end
+    if plr == LocalPlayer then showToast("Can't hide yourself") return end
+    if hiddenPlayers[plr.UserId] then showToast(plr.DisplayName.." already hidden") return end
+
+    local char = plr.Character
+    if not char then showToast("No character for "..plr.DisplayName) return end
+
+    local saved = { parts = {}, accessories = {} }
+
+    -- Hide all BaseParts
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") or p:IsA("MeshPart") or p:IsA("SpecialMesh") then
+            saved.parts[p] = p.Transparency
+            p.Transparency = 1
+        elseif p:IsA("Decal") or p:IsA("Texture") then
+            saved.parts[p] = p.Transparency
+            p.Transparency = 1
+        end
+    end
+
+    -- Hide accessories (hats etc)
+    for _, acc in ipairs(char:GetChildren()) do
+        if acc:IsA("Accessory") then
+            local handle = acc:FindFirstChild("Handle")
+            if handle then
+                saved.accessories[handle] = handle.Transparency
+                handle.Transparency = 1
+            end
+        end
+    end
+
+    -- Hide ESP tag and highlight if present
+    local head = char:FindFirstChild("Head")
+    if head then
+        local tag = head:FindFirstChild("GhoulESPTag")
+        if tag then tag.Enabled = false end
+    end
+
+    -- Hide voice chat bubble — find in PlayerGui or BillboardGui on head
+    local vcHidden = false
+    if head then
+        for _, v in ipairs(head:GetChildren()) do
+            if v:IsA("BillboardGui") and (v.Name:find("Voice") or v.Name:find("VC") or v.Name == "SpeakerIcon") then
+                v.Enabled = false
+                vcHidden = true
+            end
+        end
+    end
+    -- Also try LocalPlayer's PlayerGui for VC overlays
+    for _, g in ipairs(PlayerGui:GetChildren()) do
+        if g.Name:find("Voice") or g.Name:find("VoiceChat") then
+            for _, lbl in ipairs(g:GetDescendants()) do
+                if lbl:IsA("TextLabel") and lbl.Text == plr.DisplayName then
+                    local parent = lbl.Parent
+                    if parent then parent.Visible = false end
+                end
+            end
+        end
+    end
+
+    hiddenPlayers[plr.UserId] = saved
+    showToast("Hidden: "..plr.DisplayName)
+end
+
+local function unhidePlayer(name)
+    local plr = findPlayerByName(name)
+    if not plr then showToast("Player not found: "..name) return end
+    local saved = hiddenPlayers[plr.UserId]
+    if not saved then showToast(plr.DisplayName.." is not hidden") return end
+
+    local char = plr.Character
+    if char then
+        for part, transparency in pairs(saved.parts) do
+            pcall(function() part.Transparency = transparency end)
+        end
+        for handle, transparency in pairs(saved.accessories) do
+            pcall(function() handle.Transparency = transparency end)
+        end
+        -- Re-enable ESP tag
+        local head = char:FindFirstChild("Head")
+        if head then
+            local tag = head:FindFirstChild("GhoulESPTag")
+            if tag then tag.Enabled = true end
+            for _, v in ipairs(head:GetChildren()) do
+                if v:IsA("BillboardGui") and (v.Name:find("Voice") or v.Name:find("VC") or v.Name == "SpeakerIcon") then
+                    v.Enabled = true
+                end
+            end
+        end
+    end
+
+    hiddenPlayers[plr.UserId] = nil
+    showToast("Unhidden: "..plr.DisplayName)
+end
+
 local function loadShaders()
     showToast("Loading shaders...")
     pcall(function()
@@ -2052,7 +2156,7 @@ local function openBaseplateGui()
     StatusLbl.Parent = Body
 
     -- Size slider
-    local _, getSize = makeSlider(Body, 30, "Size (studs)", 64, 4096, 512)
+    local _, getSize = makeSlider(Body, 30, "Size (studs)", 64, 12288, 512)
 
     -- Expand button
     local ExpandBtn = makeBtn(Body, 90, 14, "Expand Baseplate", 242)
@@ -2087,7 +2191,7 @@ local function openBaseplateGui()
                 local distFromCenter = Vector3.new(hrp.Position.X, 0, hrp.Position.Z).Magnitude
                 local halfSize = bp.Size.X / 2
                 if distFromCenter > halfSize * 0.7 then
-                    local newSize = math.min(bp.Size.X + 4, 4096)
+                    local newSize = math.min(bp.Size.X + 4, 12288)
                     bp.Size = Vector3.new(newSize, bp.Size.Y, newSize)
                     StatusLbl.Text = "Baseplate: " .. math.round(newSize) .. " studs"
                 end
@@ -2227,8 +2331,24 @@ end
 --          CHAT COMMAND LISTENER (type in chat)
 -- ============================================================
 local function setupChatListener()
-    local function handleCmd(msg)
-        msg = msg:lower():gsub("^%s+",""):gsub("%s+$","")
+    local function handleCmd(rawMsg)
+        -- Keep original case for name arguments, lowercase only the command part
+        local msg = rawMsg:lower():gsub("^%s+",""):gsub("%s+$","")
+
+        -- Commands with name arguments — parse before lowercasing names
+        if msg:sub(1,6) == ";hide " then
+            local name = rawMsg:gsub("^%s*",""):sub(7)  -- preserve case for name
+            hidePlayer(name)
+            return
+        elseif msg:sub(1,8) == ";unhide " then
+            local name = rawMsg:gsub("^%s*",""):sub(9)
+            unhidePlayer(name)
+            return
+        elseif msg == ";hide" or msg == ";unhide" then
+            showToast("Usage: ;hide PlayerName  /  ;unhide PlayerName")
+            return
+        end
+
         if msg == ";fly"       then openFlyGui()
         elseif msg == ";noclip"   then toggleNoclip()
         elseif msg == ";swim"     then toggleSwim()
