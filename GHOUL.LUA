@@ -1066,15 +1066,28 @@ local jerkSpeedConn  = nil  -- heartbeat that updates speed live
 local function startJerk()
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local humanoid  = character:FindFirstChildOfClass("Humanoid"); if not humanoid then return end
-    local animator  = humanoid:FindFirstChildOfClass("Animator"); if not animator then return end
+
+    -- Works for both R6 and R15: get Animator from Humanoid
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then
+        -- Some R6 games don't have Animator yet — wait briefly
+        task.wait(0.1)
+        animator = humanoid:FindFirstChildOfClass("Animator")
+    end
+    if not animator then
+        -- Last resort: create one (R6 fallback)
+        animator = Instance.new("Animator")
+        animator.Parent = humanoid
+    end
 
     jerkAnim = Instance.new("Animation")
-    jerkAnim.AnimationId = "rbxassetid://698251653"
+    -- 698251653 works on R15; 507770239 is a good R6 fallback
+    local isR6 = character:FindFirstChild("Torso") ~= nil
+    jerkAnim.AnimationId = isR6 and "rbxassetid://507770239" or "rbxassetid://698251653"
 
     local ok = pcall(function() jerkTrack = animator:LoadAnimation(jerkAnim) end)
     if not ok or not jerkTrack then return end
 
-    -- Play ONCE with looping — no task.spawn loop needed
     jerkTrack.Looped = true
     jerkTrack:Play(0)
     jerkTrack:AdjustSpeed(jerkingSpeed)
@@ -1101,11 +1114,11 @@ local function openJerkGui()
         JBtn.BackgroundColor3 = jerkingEnabled and Color3.fromRGB(140,30,30) or Color3.fromRGB(35,35,35)
     end
 
-    -- Live speed update via heartbeat — zero overhead, just calls AdjustSpeed
+    -- Live speed heartbeat — zero overhead
     if jerkSpeedConn then jerkSpeedConn:Disconnect() end
     jerkSpeedConn = RunService.Heartbeat:Connect(function()
         if not jerkingEnabled or not jerkTrack then return end
-        local spd = getSpeed() / 10  -- 1-30 → 0.1-3.0
+        local spd = getSpeed() / 10
         if spd ~= jerkingSpeed then
             jerkingSpeed = spd
             pcall(function() jerkTrack:AdjustSpeed(jerkingSpeed) end)
@@ -1123,6 +1136,44 @@ local function openJerkGui()
     G.AncestryChanged:Connect(function()
         if not G.Parent then jerkGuiRef = nil end
     end)
+
+    -- Add GHOUL JRK tool to hotbar (equip = start, unequip = stop)
+    if jerkTool then pcall(function() jerkTool:Destroy() end) jerkTool = nil end
+    local tool = Instance.new("Tool")
+    tool.Name = "GHOUL JRK"
+    tool.RequiresHandle = false
+    tool.CanBeDropped = false
+    tool.ToolTip = "GHOUL JRK — equip to start jerk"
+
+    -- Give it a visible TextLabel handle so it shows in hotbar
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Size = Vector3.new(1,1,1)
+    handle.Transparency = 1
+    handle.CanCollide = false
+    handle.Parent = tool
+
+    tool.Equipped:Connect(function()
+        if not jerkingEnabled then
+            jerkingEnabled = true
+            jerkingSpeed = getSpeed() / 10
+            startJerk()
+            showToast("GHOUL JRK equipped — Jerk ON")
+            updateJBtn()
+        end
+    end)
+    tool.Unequipped:Connect(function()
+        if jerkingEnabled then
+            jerkingEnabled = false
+            stopJerk()
+            showToast("GHOUL JRK unequipped — Jerk OFF")
+            updateJBtn()
+        end
+    end)
+
+    tool.Parent = LocalPlayer.Backpack
+    jerkTool = tool
+    showToast("GHOUL JRK added to hotbar!")
 end
 
 local function toggleJerk() openJerkGui() end
@@ -1820,23 +1871,53 @@ local function hidePlayer(name)
         if tag then tag.Enabled = false end
     end
 
-    -- Hide voice chat bubble — find in PlayerGui or BillboardGui on head
-    local vcHidden = false
+    -- Hide voice chat — Roblox VC uses BillboardGuis on the Head and
+    -- also SurfaceGuis / Folders in PlayerGui named "VoiceChat" etc.
+    local head = char:FindFirstChild("Head")
     if head then
-        for _, v in ipairs(head:GetChildren()) do
-            if v:IsA("BillboardGui") and (v.Name:find("Voice") or v.Name:find("VC") or v.Name == "SpeakerIcon") then
+        for _, v in ipairs(head:GetDescendants()) do
+            if v:IsA("BillboardGui") or v:IsA("SurfaceGui") then
+                saved.parts[v] = v.Enabled
                 v.Enabled = false
-                vcHidden = true
+            end
+        end
+        -- Also catch accessories that might have VC indicators
+        for _, v in ipairs(head:GetChildren()) do
+            if v:IsA("BillboardGui") then
+                saved.parts[v] = v.Enabled
+                v.Enabled = false
             end
         end
     end
-    -- Also try LocalPlayer's PlayerGui for VC overlays
+    -- Kill any VC gui in PlayerGui that references this player
+    for _, g in ipairs(PlayerGui:GetDescendants()) do
+        if g:IsA("TextLabel") or g:IsA("ImageLabel") then
+            local ok, pid = pcall(function()
+                return g:FindFirstAncestor("VoiceChat") or
+                       g:FindFirstAncestorWhichIsA("ScreenGui")
+            end)
+            -- Try to match by player name displayed
+            if g:IsA("TextLabel") and (g.Text == plr.DisplayName or g.Text == plr.Name) then
+                local frame = g.Parent
+                if frame then
+                    saved.parts[frame] = frame.Visible
+                    frame.Visible = false
+                end
+            end
+        end
+    end
+    -- Nuclear option: find any ScreenGui with "Voice" in name and hide player's entry
     for _, g in ipairs(PlayerGui:GetChildren()) do
-        if g.Name:find("Voice") or g.Name:find("VoiceChat") then
-            for _, lbl in ipairs(g:GetDescendants()) do
-                if lbl:IsA("TextLabel") and lbl.Text == plr.DisplayName then
-                    local parent = lbl.Parent
-                    if parent then parent.Visible = false end
+        if g:IsA("ScreenGui") and (g.Name:lower():find("voice") or g.Name:lower():find("vc")) then
+            saved.parts[g] = g.Enabled
+            -- Don't disable whole gui (affects all players), hide per-player frames
+            for _, child in ipairs(g:GetDescendants()) do
+                if child:IsA("Frame") or child:IsA("ImageLabel") then
+                    local lbl = child:FindFirstChildWhichIsA("TextLabel")
+                    if lbl and (lbl.Text == plr.DisplayName or lbl.Text == "@"..plr.Name) then
+                        saved.parts[child] = child.Visible
+                        child.Visible = false
+                    end
                 end
             end
         end
@@ -2800,6 +2881,146 @@ local function buildStatusBar()
 
     -- Start chat listener after bar is built
     setupChatListener()
+
+    -- ── CUSTOM NAMETAGS ──────────────────────────────────────────
+    -- Owner ID gets a special red glitching tag
+    local OWNER_ID = 8046725466
+
+    local function applyNametag(plr)
+        if plr == LocalPlayer then return end
+        local function setup(char)
+            if not char then return end
+            task.wait(0.5) -- wait for head to load
+            local head = char:FindFirstChild("Head"); if not head then return end
+
+            -- Remove any existing Ghoul tag
+            local existing = head:FindFirstChild("GhoulNameTag")
+            if existing then existing:Destroy() end
+
+            local isOwner = plr.UserId == OWNER_ID
+
+            local bb = Instance.new("BillboardGui")
+            bb.Name = "GhoulNameTag"
+            bb.Size = UDim2.new(0, isOwner and 200 or 160, 0, isOwner and 50 or 30)
+            bb.StudsOffset = Vector3.new(0, isOwner and 2.5 or 2, 0)
+            bb.AlwaysOnTop = false  -- shows in 3D world space
+            bb.MaxDistance = 60
+            bb.ResetOnSpawn = false
+            bb.Parent = head
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, 0, 1, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.Font = Enum.Font.GothamBold
+            lbl.TextScaled = false
+            lbl.ZIndex = 5
+            lbl.Parent = bb
+
+            if isOwner then
+                -- Red glitching owner tag
+                lbl.Text = "👑 Ghoul OWNER"
+                lbl.TextColor3 = Color3.fromRGB(255, 30, 30)
+                lbl.TextStrokeColor3 = Color3.fromRGB(80, 0, 0)
+                lbl.TextStrokeTransparency = 0
+                lbl.TextSize = 17
+
+                -- Glitch animation: rapidly offset position and flicker colour
+                local glitchConn
+                glitchConn = RunService.Heartbeat:Connect(function()
+                    if not head.Parent then
+                        glitchConn:Disconnect(); return
+                    end
+                    local t = tick()
+                    local glitch = math.sin(t * 40) > 0.85  -- fires ~15% of frames
+                    if glitch then
+                        local ox = math.random(-3, 3)
+                        local oy = math.random(-2, 2)
+                        bb.StudsOffset = Vector3.new(ox * 0.06, 2.5 + oy * 0.04, 0)
+                        -- Flicker between deep red and bright red
+                        lbl.TextColor3 = math.random() > 0.5
+                            and Color3.fromRGB(255, 0, 0)
+                            or  Color3.fromRGB(220, 40, 40)
+                        lbl.Text = math.random() > 0.92
+                            and "👑 Gh0ul OWNER"   -- occasional character glitch
+                            or  "👑 Ghoul OWNER"
+                    else
+                        bb.StudsOffset = Vector3.new(0, 2.5, 0)
+                        lbl.TextColor3 = Color3.fromRGB(255, 30, 30)
+                        lbl.Text = "👑 Ghoul OWNER"
+                    end
+                end)
+            else
+                -- Standard Ghoul User tag — white text, clean
+                lbl.Text = "Ghoul User"
+                lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+                lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                lbl.TextStrokeTransparency = 0.4
+                lbl.TextSize = 13
+            end
+        end
+
+        if plr.Character then setup(plr.Character) end
+        plr.CharacterAdded:Connect(setup)
+    end
+
+    -- Apply to all current players and new ones
+    for _, plr in ipairs(Players:GetPlayers()) do
+        applyNametag(plr)
+    end
+    Players.PlayerAdded:Connect(applyNametag)
+
+    -- Also apply to LocalPlayer character
+    local function setupSelfTag(char)
+        if not char then return end
+        task.wait(0.5)
+        local head = char:FindFirstChild("Head"); if not head then return end
+        local existing = head:FindFirstChild("GhoulNameTag")
+        if existing then existing:Destroy() end
+        local isOwner = LocalPlayer.UserId == OWNER_ID
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "GhoulNameTag"
+        bb.Size = UDim2.new(0, isOwner and 200 or 160, 0, isOwner and 50 or 30)
+        bb.StudsOffset = Vector3.new(0, isOwner and 2.5 or 2, 0)
+        bb.AlwaysOnTop = false
+        bb.MaxDistance = 60
+        bb.ResetOnSpawn = false
+        bb.Parent = head
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1,0,1,0)
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextScaled = false
+        lbl.ZIndex = 5
+        lbl.Parent = bb
+        if isOwner then
+            lbl.Text = "👑 Ghoul OWNER"
+            lbl.TextColor3 = Color3.fromRGB(255,30,30)
+            lbl.TextStrokeColor3 = Color3.fromRGB(80,0,0)
+            lbl.TextStrokeTransparency = 0
+            lbl.TextSize = 17
+            local gc = RunService.Heartbeat:Connect(function()
+                if not head.Parent then gc:Disconnect() return end
+                local t = tick()
+                if math.sin(t*40) > 0.85 then
+                    bb.StudsOffset = Vector3.new(math.random(-3,3)*0.06, 2.5+math.random(-2,2)*0.04, 0)
+                    lbl.TextColor3 = math.random()>0.5 and Color3.fromRGB(255,0,0) or Color3.fromRGB(220,40,40)
+                    lbl.Text = math.random()>0.92 and "👑 Gh0ul OWNER" or "👑 Ghoul OWNER"
+                else
+                    bb.StudsOffset = Vector3.new(0,2.5,0)
+                    lbl.TextColor3 = Color3.fromRGB(255,30,30)
+                    lbl.Text = "👑 Ghoul OWNER"
+                end
+            end)
+        else
+            lbl.Text = "Ghoul User"
+            lbl.TextColor3 = Color3.fromRGB(255,255,255)
+            lbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+            lbl.TextStrokeTransparency = 0.4
+            lbl.TextSize = 13
+        end
+    end
+    if LocalPlayer.Character then setupSelfTag(LocalPlayer.Character) end
+    LocalPlayer.CharacterAdded:Connect(setupSelfTag)
 
     -- X key: open/close the commands panel (same as clicking the UI pill)
     UserInputService.InputBegan:Connect(function(inp, gameProcessed)
