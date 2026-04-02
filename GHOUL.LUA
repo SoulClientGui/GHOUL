@@ -43,6 +43,8 @@ local COMMANDS = {
     { cat = "PLAYER",   key = ";tp",        desc = "Teleport to a player" },
     { cat = "PLAYER",   key = ";bring",     desc = "Bring a player to you (client)" },
     { cat = "PLAYER",   key = ";emotes",    desc = "Open emotes menu" },
+    { cat = "PLAYER",   key = ";emotes2",   desc = "Open emotes menu 2" },
+    { cat = "PLAYER",   key = ";fakeout",   desc = "Block headsit / facebang on you" },
     { cat = "PLAYER",   key = ";facepalm",  desc = "Fall forward [T key]" },
     { cat = "PLAYER",   key = ";timereverse", desc = "Reverse facepalm [Z key]" },
     { cat = "PLAYER",   key = ";facebang",  desc = "Face Fuck — speed/dist GUI" },
@@ -2370,6 +2372,45 @@ local function loadEmotes()
     end)
 end
 
+local function loadEmotes2()
+    showToast("Loading Emotes 2...")
+    pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Gazer-Ha/Free-emote/refs/heads/main/Delta%20mad%20stuffs"))()
+    end)
+end
+
+-- fakeout: rapidly randomises HumanoidRootPart CFrame each frame so
+-- anyone trying to sit on you or facebang you gets thrown off
+local fakeoutActive = false
+local fakeoutConn   = nil
+
+local function toggleFakeout()
+    fakeoutActive = not fakeoutActive
+    showToast(fakeoutActive and "Fakeout ON — blocking grabs" or "Fakeout OFF")
+
+    if fakeoutActive then
+        fakeoutConn = RunService.Heartbeat:Connect(function()
+            if not fakeoutActive then
+                if fakeoutConn then fakeoutConn:Disconnect() fakeoutConn = nil end
+                return
+            end
+            local char = LocalPlayer.Character
+            if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            -- jitter position very slightly so HRP-lock scripts can't stick
+            local jitter = Vector3.new(
+                math.random(-4, 4) * 0.01,
+                0,
+                math.random(-4, 4) * 0.01
+            )
+            hrp.CFrame = hrp.CFrame + jitter
+        end)
+    else
+        if fakeoutConn then fakeoutConn:Disconnect() fakeoutConn = nil end
+    end
+end
+
 -- ── FLASH TELEPORT (;ftp) ─────────────────────────────────────
 -- Toggle with ;ftp — while active press F to teleport to mouse silently.
 local ftpActive = false
@@ -2446,6 +2487,8 @@ local function setupChatListener()
         elseif msg == ";tp"       then openTpGui()
         elseif msg == ";bring"    then openBringGui()
         elseif msg == ";emotes"   then loadEmotes()
+        elseif msg == ";emotes2"  then loadEmotes2()
+        elseif msg == ";fakeout"  then toggleFakeout()
         elseif msg == ";facepalm" then toggleFacepalm()
         elseif msg == ";timereverse" then toggleTimeReverse()
         elseif msg == ";facebang"  then loadFacebang()
@@ -2514,6 +2557,8 @@ local cmdActions = {
     [";tp"]         = openTpGui,
     [";bring"]      = openBringGui,
     [";emotes"]     = loadEmotes,
+    [";emotes2"]    = loadEmotes2,
+    [";fakeout"]    = toggleFakeout,
     [";facepalm"]   = toggleFacepalm,
     [";timereverse"]= toggleTimeReverse,
     [";facebang"]   = loadFacebang,
@@ -2883,144 +2928,211 @@ local function buildStatusBar()
     setupChatListener()
 
     -- ── CUSTOM NAMETAGS ──────────────────────────────────────────
-    -- Owner ID gets a special red glitching tag
-    local OWNER_ID = 8046725466
+    -- Only people who inject this script get a nametag.
+    -- Special user IDs get unique custom tags.
 
-    local function applyNametag(plr)
-        if plr == LocalPlayer then return end
-        local function setup(char)
-            if not char then return end
-            task.wait(0.5) -- wait for head to load
-            local head = char:FindFirstChild("Head"); if not head then return end
+    local OWNER_ID    = 8046725466   -- red glitching Ghoul OWNER
+    local CIVITCC_ID  = 2638943293   -- midnight blue glitch "Civiticc clout chaser"
+    local BANRI_ID    = 5431956202   -- violet neon glow "Banri"
 
-            -- Remove any existing Ghoul tag
-            local existing = head:FindFirstChild("GhoulNameTag")
-            if existing then existing:Destroy() end
-
-            local isOwner = plr.UserId == OWNER_ID
-
-            local bb = Instance.new("BillboardGui")
-            bb.Name = "GhoulNameTag"
-            bb.Size = UDim2.new(0, isOwner and 200 or 160, 0, isOwner and 50 or 30)
-            bb.StudsOffset = Vector3.new(0, isOwner and 2.5 or 2, 0)
-            bb.AlwaysOnTop = false  -- shows in 3D world space
-            bb.MaxDistance = 60
-            bb.ResetOnSpawn = false
-            bb.Parent = head
-
-            local lbl = Instance.new("TextLabel")
-            lbl.Size = UDim2.new(1, 0, 1, 0)
-            lbl.BackgroundTransparency = 1
-            lbl.Font = Enum.Font.GothamBold
-            lbl.TextScaled = false
-            lbl.ZIndex = 5
-            lbl.Parent = bb
-
-            if isOwner then
-                -- Red glitching owner tag
-                lbl.Text = "👑 Ghoul OWNER"
-                lbl.TextColor3 = Color3.fromRGB(255, 30, 30)
-                lbl.TextStrokeColor3 = Color3.fromRGB(80, 0, 0)
-                lbl.TextStrokeTransparency = 0
-                lbl.TextSize = 17
-
-                -- Glitch animation: rapidly offset position and flicker colour
-                local glitchConn
-                glitchConn = RunService.Heartbeat:Connect(function()
-                    if not head.Parent then
-                        glitchConn:Disconnect(); return
-                    end
-                    local t = tick()
-                    local glitch = math.sin(t * 40) > 0.85  -- fires ~15% of frames
-                    if glitch then
-                        local ox = math.random(-3, 3)
-                        local oy = math.random(-2, 2)
-                        bb.StudsOffset = Vector3.new(ox * 0.06, 2.5 + oy * 0.04, 0)
-                        -- Flicker between deep red and bright red
-                        lbl.TextColor3 = math.random() > 0.5
-                            and Color3.fromRGB(255, 0, 0)
-                            or  Color3.fromRGB(220, 40, 40)
-                        lbl.Text = math.random() > 0.92
-                            and "👑 Gh0ul OWNER"   -- occasional character glitch
-                            or  "👑 Ghoul OWNER"
-                    else
-                        bb.StudsOffset = Vector3.new(0, 2.5, 0)
-                        lbl.TextColor3 = Color3.fromRGB(255, 30, 30)
-                        lbl.Text = "👑 Ghoul OWNER"
-                    end
-                end)
-            else
-                -- Standard Ghoul User tag — white text, clean
-                lbl.Text = "Ghoul User"
-                lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-                lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-                lbl.TextStrokeTransparency = 0.4
-                lbl.TextSize = 13
-            end
-        end
-
-        if plr.Character then setup(plr.Character) end
-        plr.CharacterAdded:Connect(setup)
-    end
-
-    -- Apply to all current players and new ones
-    for _, plr in ipairs(Players:GetPlayers()) do
-        applyNametag(plr)
-    end
-    Players.PlayerAdded:Connect(applyNametag)
-
-    -- Also apply to LocalPlayer character
-    local function setupSelfTag(char)
-        if not char then return end
-        task.wait(0.5)
-        local head = char:FindFirstChild("Head"); if not head then return end
+    -- Builds and returns a BillboardGui attached to a head
+    local function buildTag(head, cfg)
         local existing = head:FindFirstChild("GhoulNameTag")
         if existing then existing:Destroy() end
-        local isOwner = LocalPlayer.UserId == OWNER_ID
+
         local bb = Instance.new("BillboardGui")
-        bb.Name = "GhoulNameTag"
-        bb.Size = UDim2.new(0, isOwner and 200 or 160, 0, isOwner and 50 or 30)
-        bb.StudsOffset = Vector3.new(0, isOwner and 2.5 or 2, 0)
-        bb.AlwaysOnTop = false
-        bb.MaxDistance = 60
+        bb.Name         = "GhoulNameTag"
+        bb.Size         = UDim2.new(0, cfg.width or 180, 0, cfg.height or 36)
+        bb.StudsOffset  = Vector3.new(0, cfg.yoff or 2.2, 0)
+        bb.AlwaysOnTop  = false
+        bb.MaxDistance  = 80
         bb.ResetOnSpawn = false
-        bb.Parent = head
+        bb.Parent       = head
+
+        -- White outline label sits behind the main label
+        local outline = Instance.new("TextLabel")
+        outline.Size                  = UDim2.new(1, 2, 1, 2)
+        outline.Position              = UDim2.new(0, -1, 0, -1)
+        outline.BackgroundTransparency = 1
+        outline.Font                  = Enum.Font.GothamBold
+        outline.TextScaled            = false
+        outline.TextSize              = cfg.size or 14
+        outline.Text                  = cfg.text
+        outline.TextColor3            = Color3.fromRGB(255, 255, 255)
+        outline.TextStrokeColor3      = Color3.fromRGB(255, 255, 255)
+        outline.TextStrokeTransparency = 0
+        outline.ZIndex                = 4
+        outline.Parent                = bb
+
+        -- Main text label on top
         local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1,0,1,0)
+        lbl.Size                  = UDim2.new(1, 0, 1, 0)
         lbl.BackgroundTransparency = 1
-        lbl.Font = Enum.Font.GothamBold
-        lbl.TextScaled = false
-        lbl.ZIndex = 5
-        lbl.Parent = bb
-        if isOwner then
-            lbl.Text = "👑 Ghoul OWNER"
-            lbl.TextColor3 = Color3.fromRGB(255,30,30)
-            lbl.TextStrokeColor3 = Color3.fromRGB(80,0,0)
-            lbl.TextStrokeTransparency = 0
-            lbl.TextSize = 17
+        lbl.Font                  = Enum.Font.GothamBold
+        lbl.TextScaled            = false
+        lbl.TextSize              = cfg.size or 14
+        lbl.Text                  = cfg.text
+        lbl.TextColor3            = cfg.color
+        lbl.TextStrokeColor3      = cfg.strokeColor or Color3.fromRGB(0, 0, 0)
+        lbl.TextStrokeTransparency = cfg.strokeTrans or 0.5
+        lbl.ZIndex                = 5
+        lbl.Parent                = bb
+
+        return bb, lbl, outline
+    end
+
+    -- Applies the right tag to a head based on userId
+    local function applyTagForId(userId, head)
+        if userId == OWNER_ID then
+            -- 👑 Ghoul OWNER — red, glitchy
+            local bb, lbl, outline = buildTag(head, {
+                text       = "👑 Ghoul OWNER",
+                color      = Color3.fromRGB(255, 30, 30),
+                strokeColor = Color3.fromRGB(60, 0, 0),
+                strokeTrans = 0,
+                size       = 16,
+                width      = 210,
+                height     = 42,
+                yoff       = 2.5,
+            })
             local gc = RunService.Heartbeat:Connect(function()
                 if not head.Parent then gc:Disconnect() return end
                 local t = tick()
-                if math.sin(t*40) > 0.85 then
-                    bb.StudsOffset = Vector3.new(math.random(-3,3)*0.06, 2.5+math.random(-2,2)*0.04, 0)
-                    lbl.TextColor3 = math.random()>0.5 and Color3.fromRGB(255,0,0) or Color3.fromRGB(220,40,40)
-                    lbl.Text = math.random()>0.92 and "👑 Gh0ul OWNER" or "👑 Ghoul OWNER"
+                local fire = math.sin(t * 38) > 0.82
+                if fire then
+                    local ox = math.random(-3, 3) * 0.05
+                    local oy = math.random(-2, 2) * 0.04
+                    bb.StudsOffset = Vector3.new(ox, 2.5 + oy, 0)
+                    local bright = math.random() > 0.5
+                    local col = bright and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(200, 30, 30)
+                    lbl.TextColor3 = col
+                    -- occasional character swap
+                    local glitched = math.random() > 0.88
+                    local txt = glitched and "👑 Gh0ul 0WNER" or "👑 Ghoul OWNER"
+                    lbl.Text    = txt
+                    outline.Text = txt
                 else
-                    bb.StudsOffset = Vector3.new(0,2.5,0)
-                    lbl.TextColor3 = Color3.fromRGB(255,30,30)
-                    lbl.Text = "👑 Ghoul OWNER"
+                    bb.StudsOffset = Vector3.new(0, 2.5, 0)
+                    lbl.TextColor3 = Color3.fromRGB(255, 30, 30)
+                    lbl.Text    = "👑 Ghoul OWNER"
+                    outline.Text = "👑 Ghoul OWNER"
                 end
             end)
+
+        elseif userId == CIVITCC_ID then
+            -- Civiticc clout chaser — midnight blue, glitchy
+            local bb, lbl, outline = buildTag(head, {
+                text       = "Civiticc clout chaser",
+                color      = Color3.fromRGB(25, 45, 160),
+                strokeColor = Color3.fromRGB(5, 10, 60),
+                strokeTrans = 0,
+                size       = 13,
+                width      = 230,
+                height     = 36,
+                yoff       = 2.3,
+            })
+            local gc = RunService.Heartbeat:Connect(function()
+                if not head.Parent then gc:Disconnect() return end
+                local t = tick()
+                local fire = math.sin(t * 35) > 0.84
+                if fire then
+                    local ox = math.random(-2, 2) * 0.04
+                    bb.StudsOffset = Vector3.new(ox, 2.3, 0)
+                    local darker = math.random() > 0.5
+                    lbl.TextColor3 = darker
+                        and Color3.fromRGB(15, 30, 130)
+                        or  Color3.fromRGB(40, 60, 200)
+                    local chars = {"C1viticc clout chaser","Civiticc cl0ut chaser","Civiticc clout ch4ser"}
+                    local txt = math.random() > 0.85 and chars[math.random(1,3)] or "Civiticc clout chaser"
+                    lbl.Text    = txt
+                    outline.Text = txt
+                else
+                    bb.StudsOffset = Vector3.new(0, 2.3, 0)
+                    lbl.TextColor3 = Color3.fromRGB(25, 45, 160)
+                    lbl.Text    = "Civiticc clout chaser"
+                    outline.Text = "Civiticc clout chaser"
+                end
+            end)
+
+        elseif userId == BANRI_ID then
+            -- Banri — violet with neon glow effect
+            local bb, lbl, outline = buildTag(head, {
+                text       = "✦ Banri ✦",
+                color      = Color3.fromRGB(170, 80, 255),
+                strokeColor = Color3.fromRGB(90, 0, 180),
+                strokeTrans = 0,
+                size       = 16,
+                width      = 160,
+                height     = 40,
+                yoff       = 2.4,
+            })
+            -- Neon glow: pulse the stroke transparency to simulate glow
+            local gc = RunService.Heartbeat:Connect(function()
+                if not head.Parent then gc:Disconnect() return end
+                local t = tick()
+                local pulse = math.abs(math.sin(t * 2.5))  -- 0 to 1, smooth
+                -- The "glow" is faked by cycling stroke transparency
+                lbl.TextStrokeTransparency = 1 - pulse * 0.9
+                outline.TextStrokeTransparency = 1 - pulse * 0.6
+                -- Slight colour shift from violet to pink on the pulse peak
+                local r = math.floor(170 + pulse * 60)
+                local g = math.floor(80  - pulse * 20)
+                local b = 255
+                lbl.TextColor3 = Color3.fromRGB(math.min(r,255), math.max(g,0), b)
+            end)
+
         else
-            lbl.Text = "Ghoul User"
-            lbl.TextColor3 = Color3.fromRGB(255,255,255)
-            lbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
-            lbl.TextStrokeTransparency = 0.4
-            lbl.TextSize = 13
+            -- Standard Ghoul User — clean white with white outline
+            buildTag(head, {
+                text       = "Ghoul User",
+                color      = Color3.fromRGB(220, 220, 220),
+                strokeColor = Color3.fromRGB(0, 0, 0),
+                strokeTrans = 0.6,
+                size       = 13,
+                width      = 150,
+                height     = 32,
+                yoff       = 2.1,
+            })
         end
     end
-    if LocalPlayer.Character then setupSelfTag(LocalPlayer.Character) end
+
+    -- Apply tag to the local player (they injected the script)
+    local function setupSelfTag(char)
+        if not char then return end
+        task.wait(0.5)
+        local head = char:FindFirstChild("Head")
+        if not head then return end
+        applyTagForId(LocalPlayer.UserId, head)
+    end
+
+    if LocalPlayer.Character then task.spawn(setupSelfTag, LocalPlayer.Character) end
     LocalPlayer.CharacterAdded:Connect(setupSelfTag)
+
+    -- For special known user IDs, apply their tag when they're in the server
+    -- (even if they didn't inject — these are hardcoded VIPs)
+    local function checkVIPTag(plr)
+        local vipIds = { OWNER_ID, CIVITCC_ID, BANRI_ID }
+        local isVIP = false
+        for _, id in ipairs(vipIds) do
+            if plr.UserId == id then isVIP = true break end
+        end
+        if not isVIP then return end
+
+        local function setup(char)
+            task.wait(0.5)
+            local head = char and char:FindFirstChild("Head")
+            if not head then return end
+            applyTagForId(plr.UserId, head)
+        end
+
+        if plr.Character then task.spawn(setup, plr.Character) end
+        plr.CharacterAdded:Connect(setup)
+    end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        checkVIPTag(plr)
+    end
+    Players.PlayerAdded:Connect(checkVIPTag)
 
     -- X key: open/close the commands panel (same as clicking the UI pill)
     UserInputService.InputBegan:Connect(function(inp, gameProcessed)
