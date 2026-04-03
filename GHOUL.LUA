@@ -598,23 +598,70 @@ local function toggleSwim()
 end
 
 -- ── SPEED ────────────────────────────────────────────────────
-local speedGuiRef = nil
+local speedGuiRef  = nil
+local speedConn    = nil
+local speedLocked  = false
+local lockedSpeed  = 16
+
 local function openSpeedGui()
-    if speedGuiRef then speedGuiRef:Destroy() speedGuiRef=nil end
-    local G, Body = buildMiniGui("Speed", 260, 110, 240, 220)
+    if speedGuiRef then speedGuiRef:Destroy() speedGuiRef = nil end
+    local G, Body = buildMiniGui("Speed", 260, 130, 240, 220)
     speedGuiRef = G
-    local _, getSpd = makeSlider(Body, 8, "Walk Speed", 50, 600, 50)
-    local ApplyBtn = makeBtn(Body, 68, 14, "Apply", 108)
+
+    local _, getSpd = makeSlider(Body, 8, "Walk Speed", 16, 500, lockedSpeed)
+
+    -- Apply button sets speed and locks it via heartbeat so game can't reset it
+    local ApplyBtn = makeBtn(Body, 68, 14, speedLocked and "Speed LOCKED" or "Apply + Lock", 108)
+    ApplyBtn.BackgroundColor3 = speedLocked and Color3.fromRGB(20,100,20) or Color3.fromRGB(35,35,35)
+
     local ResetBtn = makeBtn(Body, 68, 136, "Reset (16)", 108)
+
     ApplyBtn.MouseButton1Click:Connect(function()
-        local char=LocalPlayer.Character; if not char then return end
-        local hum=char:FindFirstChildOfClass("Humanoid"); if hum then hum.WalkSpeed=getSpd() end
-        showToast("Speed → "..getSpd())
+        lockedSpeed = getSpd()
+        speedLocked = true
+        ApplyBtn.Text = "Speed LOCKED"
+        ApplyBtn.BackgroundColor3 = Color3.fromRGB(20,100,20)
+
+        -- Apply immediately
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = lockedSpeed end
+        end
+
+        -- Heartbeat keeps reapplying so the game can't override it
+        if speedConn then speedConn:Disconnect() end
+        speedConn = RunService.Heartbeat:Connect(function()
+            if not speedLocked then
+                if speedConn then speedConn:Disconnect() speedConn = nil end
+                return
+            end
+            local c = LocalPlayer.Character; if not c then return end
+            local h = c:FindFirstChildOfClass("Humanoid"); if not h then return end
+            if h.WalkSpeed ~= lockedSpeed then
+                h.WalkSpeed = lockedSpeed
+            end
+        end)
+
+        showToast("Speed locked at " .. lockedSpeed)
     end)
+
     ResetBtn.MouseButton1Click:Connect(function()
-        local char=LocalPlayer.Character; if not char then return end
-        local hum=char:FindFirstChildOfClass("Humanoid"); if hum then hum.WalkSpeed=16 end
-        showToast("Speed → 16 (reset)")
+        speedLocked = false
+        lockedSpeed = 16
+        if speedConn then speedConn:Disconnect() speedConn = nil end
+        ApplyBtn.Text = "Apply + Lock"
+        ApplyBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = 16 end
+        end
+        showToast("Speed reset to 16")
+    end)
+
+    G.AncestryChanged:Connect(function()
+        if not G.Parent then speedGuiRef = nil end
     end)
 end
 
@@ -1250,10 +1297,11 @@ local function getTargetInFOV()
     return bestPlr
 end
 
+local lockKeybind = Enum.KeyCode.Unknown  -- no keybind by default, use FOV auto
+
 local function openLockGui()
     if lockGuiRef then lockGuiRef:Destroy() lockGuiRef = nil end
-    -- Height: 18(status) + 34(search bar) + 80(list) + 30(refresh) + 60(slider) + 8(gap) + 38(btn row) + 16(padding) = 284
-    local G, Body = buildMiniGui("Lock / Aim", 290, 320, 300, 140)
+    local G, Body = buildMiniGui("Lock / Aim", 290, 380, 300, 100)
     lockGuiRef = G
 
     -- Status label
@@ -1261,37 +1309,85 @@ local function openLockGui()
     StatusLbl.Size = UDim2.new(1,-28,0,18)
     StatusLbl.Position = UDim2.new(0,14,0,6)
     StatusLbl.BackgroundTransparency = 1
-    StatusLbl.Text = "No target — aim at nearest in FOV"
+    StatusLbl.Text = "No target — auto aims at nearest in FOV"
     StatusLbl.TextColor3 = Color3.fromRGB(150,150,150)
     StatusLbl.Font = Enum.Font.Gotham
-    StatusLbl.TextSize = 12
+    StatusLbl.TextSize = 11
     StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
     StatusLbl.ZIndex = 52
     StatusLbl.Parent = Body
 
-    -- Searchable player list at y=26, height=70, refresh btn auto at 26+34+70+6=136
+    -- Player list: y=26, height=70
     makePlayerList(Body, 26, 70, function(plr)
         lockTarget = plr
-        StatusLbl.Text = "Target: " .. plr.DisplayName
+        StatusLbl.Text = "Target locked: " .. plr.DisplayName
         showToast("Locked → " .. plr.DisplayName)
     end)
 
-    -- FOV slider sits below refresh btn: 26+34+70+32 = 162
-    local _, getFOV = makeSlider(Body, 168, "FOV Radius (px)", 20, 800, lockFOV)
+    -- Clear target button (deselect so it falls back to FOV auto)
+    local ClearBtn = makeBtn(Body, 168, 14, "✕  Clear Target (use FOV)", 242)
+    ClearBtn.MouseButton1Click:Connect(function()
+        lockTarget = nil
+        StatusLbl.Text = "No target — auto aims at nearest in FOV"
+        showToast("Target cleared — FOV auto mode")
+    end)
 
-    -- Silent Aim + Aimlock buttons side by side: y = 168+52+8 = 228
-    local SABtn = makeBtn(Body, 228, 14, silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF", 128)
+    -- FOV slider: y=210
+    local _, getFOV = makeSlider(Body, 210, "FOV Radius (px)", 20, 800, lockFOV)
+
+    -- Keybind picker: y=272
+    local KeyLbl = Instance.new("TextLabel")
+    KeyLbl.Size = UDim2.new(1,-28,0,16)
+    KeyLbl.Position = UDim2.new(0,14,0,272)
+    KeyLbl.BackgroundTransparency = 1
+    KeyLbl.Text = "Keybind to toggle aimlock:"
+    KeyLbl.TextColor3 = Color3.fromRGB(140,140,140)
+    KeyLbl.Font = Enum.Font.Gotham
+    KeyLbl.TextSize = 11
+    KeyLbl.TextXAlignment = Enum.TextXAlignment.Left
+    KeyLbl.ZIndex = 52
+    KeyLbl.Parent = Body
+
+    local KeyBindBtn = makeBtn(Body, 291, 14, lockKeybind == Enum.KeyCode.Unknown and "Press to set keybind" or "Key: " .. tostring(lockKeybind.Name), 242)
+    local listening = false
+    KeyBindBtn.MouseButton1Click:Connect(function()
+        listening = true
+        KeyBindBtn.Text = "Press any key..."
+        KeyBindBtn.BackgroundColor3 = Color3.fromRGB(60,40,10)
+    end)
+    UserInputService.InputBegan:Connect(function(inp, gp)
+        if not listening then return end
+        if inp.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        listening = false
+        lockKeybind = inp.KeyCode
+        KeyBindBtn.Text = "Key: " .. inp.KeyCode.Name
+        KeyBindBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+        showToast("Aimlock keybind → " .. inp.KeyCode.Name)
+    end)
+
+    -- Silent Aim + Aimlock buttons: y=332
+    local SABtn = makeBtn(Body, 332, 14, silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF", 128)
     SABtn.BackgroundColor3 = silentAimActive and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
 
-    local ALBtn = makeBtn(Body, 228, 150, aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF", 126)
+    local ALBtn = makeBtn(Body, 332, 150, aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF", 126)
     ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
 
-    -- Update FOV live from slider
+    -- Live FOV update
     local fovConn = RunService.Heartbeat:Connect(function()
         lockFOV = getFOV()
     end)
 
-    -- Silent Aim logic
+    -- Keybind listener for toggling aimlock in-game
+    local keybindConn = UserInputService.InputBegan:Connect(function(inp, gp)
+        if gp and UserInputService:GetFocusedTextBox() then return end
+        if lockKeybind == Enum.KeyCode.Unknown then return end
+        if inp.KeyCode ~= lockKeybind then return end
+        aimlockEnabled = not aimlockEnabled
+        ALBtn.Text = aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF"
+        ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
+        showToast(aimlockEnabled and "Aimlock ON" or "Aimlock OFF")
+    end)
+
     SABtn.MouseButton1Click:Connect(function()
         silentAimActive = not silentAimActive
         SABtn.Text = silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF"
@@ -1302,8 +1398,7 @@ local function openLockGui()
         if silentAimActive then
             RunService:BindToRenderStep("GhoulSilentAim", 200, function()
                 if not silentAimActive then
-                    RunService:UnbindFromRenderStep("GhoulSilentAim")
-                    return
+                    RunService:UnbindFromRenderStep("GhoulSilentAim"); return
                 end
                 lockFOV = getFOV()
                 local target = lockTarget or getTargetInFOV()
@@ -1315,8 +1410,7 @@ local function openLockGui()
                 local dx = screenPos.X - vp.X/2
                 local dy = screenPos.Y - vp.Y/2
                 if math.sqrt(dx*dx+dy*dy) <= lockFOV then
-                    local aimCF = CFrame.new(Camera.CFrame.Position, head.Position)
-                    Camera.CFrame = Camera.CFrame:Lerp(aimCF, 0.2)
+                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, head.Position), 0.2)
                 end
             end)
         else
@@ -1324,7 +1418,6 @@ local function openLockGui()
         end
     end)
 
-    -- Aimlock logic
     ALBtn.MouseButton1Click:Connect(function()
         aimlockEnabled = not aimlockEnabled
         ALBtn.Text = aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF"
@@ -1342,30 +1435,37 @@ local function openLockGui()
                 lockFOV = getFOV()
                 local target = lockTarget or getTargetInFOV()
                 if not target or not target.Character then return end
+
                 local head = target.Character:FindFirstChild("Head")
                 local hrp  = target.Character:FindFirstChild("HumanoidRootPart")
                 if not head or not hrp then return end
 
-                -- Velocity prediction: estimate where the head will be next frame
-                -- based on current velocity and distance (ping compensation)
-                local velocity   = hrp.AssemblyLinearVelocity
-                local dist       = (Camera.CFrame.Position - head.Position).Magnitude
-                -- Time for a bullet to travel: approx dist / 2000 studs/s (generic)
-                -- For prediction we just use a fixed small lookahead based on distance
-                local ping       = 0.06 -- ~60ms average, can be tuned
-                local lookahead  = ping + (dist / 2000)
-                local predicted  = head.Position + velocity * lookahead
+                -- Aggressive velocity prediction for games like DaHood/ZeeHood
+                -- where players macro-click and move at high speeds
+                local vel      = hrp.AssemblyLinearVelocity
+                local dist     = (Camera.CFrame.Position - head.Position).Magnitude
+                -- More aggressive lookahead for high-speed macro situations
+                local lookahead = 0.08 + (dist / 1500)
+                -- Also factor in vertical velocity (jumping macros)
+                local predicted = head.Position + vel * lookahead
 
-                -- Only lock if predicted position is within FOV
                 local screenPos, onScreen = Camera:WorldToViewportPoint(predicted)
-                if not onScreen then return end
+                if not onScreen then
+                    -- Target went off screen — still try to snap to raw head pos
+                    local rawScreen, rawOn = Camera:WorldToViewportPoint(head.Position)
+                    if not rawOn then return end
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
+                    return
+                end
+
                 local vp = Camera.ViewportSize
-                local dx = screenPos.X - vp.X/2
-                local dy = screenPos.Y - vp.Y/2
+                local dx = screenPos.X - vp.X / 2
+                local dy = screenPos.Y - vp.Y / 2
+
                 if math.sqrt(dx*dx + dy*dy) <= lockFOV then
-                    -- Smooth snap to predicted position
-                    local aimCF = CFrame.new(Camera.CFrame.Position, predicted)
-                    Camera.CFrame = Camera.CFrame:Lerp(aimCF, 0.35)
+                    -- Instant hard snap — no lerp — essential for macro situations
+                    -- where the target moves faster than a smooth lerp can track
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, predicted)
                 end
             end)
         else
@@ -1377,6 +1477,7 @@ local function openLockGui()
         if not G.Parent then
             lockGuiRef = nil
             fovConn:Disconnect()
+            keybindConn:Disconnect()
         end
     end)
 end
@@ -1515,59 +1616,158 @@ local function clearESP()
     end
 end
 
+-- Shared colour state for ESP, Box and Chams
+local espColor   = Color3.fromRGB(255, 255, 255)
+local boxColor   = Color3.fromRGB(255, 255, 255)
+local chamsColor = Color3.fromRGB(255, 255, 255)
+
+-- Rainbow colour swatches used by all three colour pickers
+local RAINBOW_COLORS = {
+    {n="Red",    c=Color3.fromRGB(255,50,50)},
+    {n="Orange", c=Color3.fromRGB(255,140,0)},
+    {n="Yellow", c=Color3.fromRGB(255,230,0)},
+    {n="Green",  c=Color3.fromRGB(50,200,80)},
+    {n="Cyan",   c=Color3.fromRGB(0,220,220)},
+    {n="Blue",   c=Color3.fromRGB(30,100,255)},
+    {n="Purple", c=Color3.fromRGB(160,60,240)},
+    {n="Pink",   c=Color3.fromRGB(255,80,180)},
+    {n="White",  c=Color3.fromRGB(255,255,255)},
+    {n="Black",  c=Color3.fromRGB(20,20,20)},
+}
+
+-- Builds a row of colour swatches in a parent frame, calls onPick(Color3)
+local function makeColorPicker(parent, yPos, onPick)
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1,-28,0,28)
+    Row.Position = UDim2.new(0,14,0,yPos)
+    Row.BackgroundTransparency = 1
+    Row.ZIndex = 52
+    Row.Parent = parent
+
+    local Layout = Instance.new("UIListLayout")
+    Layout.FillDirection = Enum.FillDirection.Horizontal
+    Layout.Padding = UDim.new(0,4)
+    Layout.VerticalAlignment = Enum.VerticalAlignment.Center
+    Layout.Parent = Row
+
+    for _, entry in ipairs(RAINBOW_COLORS) do
+        local Swatch = Instance.new("TextButton")
+        Swatch.Size = UDim2.new(0,22,0,22)
+        Swatch.BackgroundColor3 = entry.c
+        Swatch.Text = ""
+        Swatch.BorderSizePixel = 0
+        Swatch.ZIndex = 53
+        Swatch.Parent = Row
+        makeCorner(Swatch, 5)
+        Swatch.MouseEnter:Connect(function()
+            TweenService:Create(Swatch, TweenInfo.new(0.1), {Size = UDim2.new(0,26,0,26)}):Play()
+        end)
+        Swatch.MouseLeave:Connect(function()
+            TweenService:Create(Swatch, TweenInfo.new(0.1), {Size = UDim2.new(0,22,0,22)}):Play()
+        end)
+        Swatch.MouseButton1Click:Connect(function()
+            onPick(entry.c)
+            showToast("Colour → " .. entry.n)
+        end)
+    end
+    return Row
+end
+
 local function applyESP(char)
     if not char then return end
-    -- Remove old ESP if re-applying
     local existing = char:FindFirstChild("GhoulESP"); if existing then existing:Destroy() end
 
-    -- White outline through walls
     local hl = Instance.new("Highlight")
     hl.Name = "GhoulESP"
     hl.Adornee = char
     hl.FillColor = Color3.fromRGB(0,0,0)
     hl.FillTransparency = 1
-    hl.OutlineColor = Color3.fromRGB(255,255,255)
+    hl.OutlineColor = espColor
     hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.Parent = char
 
-    -- Name tag above head
     local head = char:FindFirstChild("Head")
     if head then
         local existingTag = head:FindFirstChild("GhoulESPTag")
         if existingTag then existingTag:Destroy() end
 
-        -- Use GetPlayerFromCharacter for reliable lookup
         local plr = Players:GetPlayerFromCharacter(char)
         local tagName = plr and (plr.DisplayName .. "\n@" .. plr.Name) or char.Name
 
         local bb = Instance.new("BillboardGui")
         bb.Name = "GhoulESPTag"
-        bb.Size = UDim2.new(0, 150, 0, 44)
-        bb.StudsOffset = Vector3.new(0, 3, 0)
+        bb.Size = UDim2.new(0,160,0,48)
+        bb.StudsOffset = Vector3.new(0,3,0)
         bb.AlwaysOnTop = true
         bb.MaxDistance = 500
         bb.ResetOnSpawn = false
         bb.Parent = head
 
         local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1, 0, 1, 0)
+        lbl.Size = UDim2.new(1,0,1,0)
         lbl.BackgroundTransparency = 1
         lbl.Text = tagName
-        lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-        lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        lbl.TextColor3 = espColor
+        lbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
         lbl.TextStrokeTransparency = 0
         lbl.Font = Enum.Font.GothamBold
-        lbl.TextSize = 14
+        lbl.TextSize = 15
         lbl.TextScaled = false
         lbl.Parent = bb
     end
 end
 
+-- Re-applies ESP with new colour to all currently highlighted characters
+local function refreshESPColor()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hl = plr.Character:FindFirstChild("GhoulESP")
+            if hl then hl.OutlineColor = espColor end
+            local head = plr.Character:FindFirstChild("Head")
+            if head then
+                local bb = head:FindFirstChild("GhoulESPTag")
+                if bb then
+                    local lbl = bb:FindFirstChildWhichIsA("TextLabel")
+                    if lbl then lbl.TextColor3 = espColor end
+                end
+            end
+        end
+    end
+end
+
+local espGuiRef = nil
 local function toggleESP()
     espActive = not espActive
-    showToast(espActive and "ESP  ON" or "ESP  OFF")
+
     if espActive then
+        -- Open colour picker GUI
+        if espGuiRef then espGuiRef:Destroy() espGuiRef = nil end
+        local G, Body = buildMiniGui("ESP Settings", 280, 80, 340, 120)
+        espGuiRef = G
+
+        local Lbl = Instance.new("TextLabel")
+        Lbl.Size = UDim2.new(1,-28,0,16)
+        Lbl.Position = UDim2.new(0,14,0,6)
+        Lbl.BackgroundTransparency = 1
+        Lbl.Text = "ESP Colour  (auto-applies live)"
+        Lbl.TextColor3 = Color3.fromRGB(150,150,150)
+        Lbl.Font = Enum.Font.Gotham
+        Lbl.TextSize = 12
+        Lbl.TextXAlignment = Enum.TextXAlignment.Left
+        Lbl.ZIndex = 52
+        Lbl.Parent = Body
+
+        makeColorPicker(Body, 26, function(col)
+            espColor = col
+            refreshESPColor()
+        end)
+
+        G.AncestryChanged:Connect(function()
+            if not G.Parent then espGuiRef = nil end
+        end)
+
+        -- Apply ESP to all players
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
                 if plr.Character then applyESP(plr.Character) end
@@ -1583,8 +1783,11 @@ local function toggleESP()
             end
         end)
         table.insert(espConns, c2)
+        showToast("ESP  ON")
     else
+        if espGuiRef then espGuiRef:Destroy() espGuiRef = nil end
         clearESP()
+        showToast("ESP  OFF")
     end
 end
 
@@ -1603,22 +1806,59 @@ end
 local function applyBox(char)
     if not char then return end
     local existing = char:FindFirstChild("GhoulBox"); if existing then existing:Destroy() end
-    -- Use Highlight so box shows through walls
     local hl = Instance.new("Highlight")
     hl.Name = "GhoulBox"
     hl.Adornee = char
-    hl.FillColor = Color3.fromRGB(255,255,255)
+    hl.FillColor = boxColor
     hl.FillTransparency = 0.92
-    hl.OutlineColor = Color3.fromRGB(255,255,255)
+    hl.OutlineColor = boxColor
     hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.Parent = char
 end
 
+local function refreshBoxColor()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hl = plr.Character:FindFirstChild("GhoulBox")
+            if hl then
+                hl.FillColor = boxColor
+                hl.OutlineColor = boxColor
+            end
+        end
+    end
+end
+
+local boxGuiRef = nil
 local function toggleBox()
     boxActive = not boxActive
-    showToast(boxActive and "Box ESP  ON" or "Box ESP  OFF")
+
     if boxActive then
+        if boxGuiRef then boxGuiRef:Destroy() boxGuiRef = nil end
+        local G, Body = buildMiniGui("Box ESP Settings", 280, 80, 360, 140)
+        boxGuiRef = G
+
+        local Lbl = Instance.new("TextLabel")
+        Lbl.Size = UDim2.new(1,-28,0,16)
+        Lbl.Position = UDim2.new(0,14,0,6)
+        Lbl.BackgroundTransparency = 1
+        Lbl.Text = "Box Colour  (auto-applies live)"
+        Lbl.TextColor3 = Color3.fromRGB(150,150,150)
+        Lbl.Font = Enum.Font.Gotham
+        Lbl.TextSize = 12
+        Lbl.TextXAlignment = Enum.TextXAlignment.Left
+        Lbl.ZIndex = 52
+        Lbl.Parent = Body
+
+        makeColorPicker(Body, 26, function(col)
+            boxColor = col
+            refreshBoxColor()
+        end)
+
+        G.AncestryChanged:Connect(function()
+            if not G.Parent then boxGuiRef = nil end
+        end)
+
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
                 if plr.Character then applyBox(plr.Character) end
@@ -1634,8 +1874,11 @@ local function toggleBox()
             end
         end)
         table.insert(boxConns, c2)
+        showToast("Box ESP  ON")
     else
+        if boxGuiRef then boxGuiRef:Destroy() boxGuiRef = nil end
         clearBox()
+        showToast("Box ESP  OFF")
     end
 end
 
@@ -2928,210 +3171,158 @@ local function buildStatusBar()
     setupChatListener()
 
     -- ── CUSTOM NAMETAGS ──────────────────────────────────────────
-    -- Only people who inject this script get a nametag.
-    -- Special user IDs get unique custom tags.
+    -- Only injectors get the Ghoul User tag.
+    -- VIP IDs get their own tag regardless of injection.
 
-    local OWNER_ID    = 8046725466   -- red glitching Ghoul OWNER
-    local CIVITCC_ID  = 2638943293   -- midnight blue glitch "Civiticc clout chaser"
-    local BANRI_ID    = 5431956202   -- violet neon glow "Banri"
+    local OWNER_ID   = 8046725466
+    local CIVITCC_ID = 2638943293
+    local BANRI_ID   = 5431956202
+    local TEA_ID     = 10670249589
 
-    -- Builds and returns a BillboardGui attached to a head
     local function buildTag(head, cfg)
         local existing = head:FindFirstChild("GhoulNameTag")
         if existing then existing:Destroy() end
 
         local bb = Instance.new("BillboardGui")
         bb.Name         = "GhoulNameTag"
-        bb.Size         = UDim2.new(0, cfg.width or 180, 0, cfg.height or 36)
-        bb.StudsOffset  = Vector3.new(0, cfg.yoff or 2.2, 0)
+        bb.Size         = UDim2.new(0, cfg.w or 200, 0, cfg.h or 44)
+        bb.StudsOffset  = Vector3.new(0, cfg.y or 2.4, 0)
         bb.AlwaysOnTop  = false
         bb.MaxDistance  = 80
         bb.ResetOnSpawn = false
         bb.Parent       = head
 
-        -- White outline label sits behind the main label
         local outline = Instance.new("TextLabel")
-        outline.Size                  = UDim2.new(1, 2, 1, 2)
-        outline.Position              = UDim2.new(0, -1, 0, -1)
+        outline.Size                   = UDim2.new(1, 2, 1, 2)
+        outline.Position               = UDim2.new(0, -1, 0, -1)
         outline.BackgroundTransparency = 1
-        outline.Font                  = Enum.Font.GothamBold
-        outline.TextScaled            = false
-        outline.TextSize              = cfg.size or 14
-        outline.Text                  = cfg.text
-        outline.TextColor3            = Color3.fromRGB(255, 255, 255)
-        outline.TextStrokeColor3      = Color3.fromRGB(255, 255, 255)
+        outline.Font                   = Enum.Font.GothamBold
+        outline.TextScaled             = false
+        outline.TextSize               = cfg.size or 17
+        outline.Text                   = cfg.text
+        outline.TextColor3             = Color3.fromRGB(255, 255, 255)
+        outline.TextStrokeColor3       = Color3.fromRGB(255, 255, 255)
         outline.TextStrokeTransparency = 0
-        outline.ZIndex                = 4
-        outline.Parent                = bb
+        outline.ZIndex                 = 4
+        outline.Parent                 = bb
 
-        -- Main text label on top
         local lbl = Instance.new("TextLabel")
-        lbl.Size                  = UDim2.new(1, 0, 1, 0)
+        lbl.Size                   = UDim2.new(1, 0, 1, 0)
         lbl.BackgroundTransparency = 1
-        lbl.Font                  = Enum.Font.GothamBold
-        lbl.TextScaled            = false
-        lbl.TextSize              = cfg.size or 14
-        lbl.Text                  = cfg.text
-        lbl.TextColor3            = cfg.color
-        lbl.TextStrokeColor3      = cfg.strokeColor or Color3.fromRGB(0, 0, 0)
-        lbl.TextStrokeTransparency = cfg.strokeTrans or 0.5
-        lbl.ZIndex                = 5
-        lbl.Parent                = bb
+        lbl.Font                   = Enum.Font.GothamBold
+        lbl.TextScaled             = false
+        lbl.TextSize               = cfg.size or 17
+        lbl.Text                   = cfg.text
+        lbl.TextColor3             = cfg.color
+        lbl.TextStrokeColor3       = cfg.stroke or Color3.fromRGB(0, 0, 0)
+        lbl.TextStrokeTransparency = cfg.strokeT or 0.4
+        lbl.ZIndex                 = 5
+        lbl.Parent                 = bb
 
         return bb, lbl, outline
     end
 
-    -- Applies the right tag to a head based on userId
     local function applyTagForId(userId, head)
         if userId == OWNER_ID then
-            -- 👑 Ghoul OWNER — red, glitchy
             local bb, lbl, outline = buildTag(head, {
-                text       = "👑 Ghoul OWNER",
-                color      = Color3.fromRGB(255, 30, 30),
-                strokeColor = Color3.fromRGB(60, 0, 0),
-                strokeTrans = 0,
-                size       = 16,
-                width      = 210,
-                height     = 42,
-                yoff       = 2.5,
+                text = "👑 Ghoul OWNER", color = Color3.fromRGB(255,30,30),
+                stroke = Color3.fromRGB(60,0,0), strokeT = 0,
+                size = 19, w = 230, h = 48, y = 2.6,
             })
             local gc = RunService.Heartbeat:Connect(function()
                 if not head.Parent then gc:Disconnect() return end
-                local t = tick()
-                local fire = math.sin(t * 38) > 0.82
+                local fire = math.sin(tick() * 38) > 0.82
                 if fire then
-                    local ox = math.random(-3, 3) * 0.05
-                    local oy = math.random(-2, 2) * 0.04
-                    bb.StudsOffset = Vector3.new(ox, 2.5 + oy, 0)
-                    local bright = math.random() > 0.5
-                    local col = bright and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(200, 30, 30)
-                    lbl.TextColor3 = col
-                    -- occasional character swap
-                    local glitched = math.random() > 0.88
-                    local txt = glitched and "👑 Gh0ul 0WNER" or "👑 Ghoul OWNER"
-                    lbl.Text    = txt
-                    outline.Text = txt
+                    bb.StudsOffset = Vector3.new(math.random(-3,3)*0.05, 2.6+math.random(-2,2)*0.04, 0)
+                    lbl.TextColor3 = math.random()>0.5 and Color3.fromRGB(255,0,0) or Color3.fromRGB(200,30,30)
+                    local txt = math.random()>0.88 and "👑 Gh0ul 0WNER" or "👑 Ghoul OWNER"
+                    lbl.Text = txt; outline.Text = txt
                 else
-                    bb.StudsOffset = Vector3.new(0, 2.5, 0)
-                    lbl.TextColor3 = Color3.fromRGB(255, 30, 30)
-                    lbl.Text    = "👑 Ghoul OWNER"
-                    outline.Text = "👑 Ghoul OWNER"
+                    bb.StudsOffset = Vector3.new(0,2.6,0)
+                    lbl.TextColor3 = Color3.fromRGB(255,30,30)
+                    lbl.Text = "👑 Ghoul OWNER"; outline.Text = "👑 Ghoul OWNER"
                 end
             end)
 
         elseif userId == CIVITCC_ID then
-            -- Civiticc clout chaser — midnight blue, glitchy
             local bb, lbl, outline = buildTag(head, {
-                text       = "Civiticc clout chaser",
-                color      = Color3.fromRGB(25, 45, 160),
-                strokeColor = Color3.fromRGB(5, 10, 60),
-                strokeTrans = 0,
-                size       = 13,
-                width      = 230,
-                height     = 36,
-                yoff       = 2.3,
+                text = "Civiticc clout chaser", color = Color3.fromRGB(25,45,160),
+                stroke = Color3.fromRGB(5,10,60), strokeT = 0,
+                size = 16, w = 260, h = 44, y = 2.4,
             })
             local gc = RunService.Heartbeat:Connect(function()
                 if not head.Parent then gc:Disconnect() return end
-                local t = tick()
-                local fire = math.sin(t * 35) > 0.84
+                local fire = math.sin(tick() * 35) > 0.84
                 if fire then
-                    local ox = math.random(-2, 2) * 0.04
-                    bb.StudsOffset = Vector3.new(ox, 2.3, 0)
-                    local darker = math.random() > 0.5
-                    lbl.TextColor3 = darker
-                        and Color3.fromRGB(15, 30, 130)
-                        or  Color3.fromRGB(40, 60, 200)
-                    local chars = {"C1viticc clout chaser","Civiticc cl0ut chaser","Civiticc clout ch4ser"}
-                    local txt = math.random() > 0.85 and chars[math.random(1,3)] or "Civiticc clout chaser"
-                    lbl.Text    = txt
-                    outline.Text = txt
+                    bb.StudsOffset = Vector3.new(math.random(-2,2)*0.04, 2.4, 0)
+                    lbl.TextColor3 = math.random()>0.5 and Color3.fromRGB(15,30,130) or Color3.fromRGB(40,60,200)
+                    local alts = {"C1viticc clout chaser","Civiticc cl0ut chaser","Civiticc clout ch4ser"}
+                    local txt = math.random()>0.85 and alts[math.random(1,3)] or "Civiticc clout chaser"
+                    lbl.Text = txt; outline.Text = txt
                 else
-                    bb.StudsOffset = Vector3.new(0, 2.3, 0)
-                    lbl.TextColor3 = Color3.fromRGB(25, 45, 160)
-                    lbl.Text    = "Civiticc clout chaser"
-                    outline.Text = "Civiticc clout chaser"
+                    bb.StudsOffset = Vector3.new(0,2.4,0)
+                    lbl.TextColor3 = Color3.fromRGB(25,45,160)
+                    lbl.Text = "Civiticc clout chaser"; outline.Text = "Civiticc clout chaser"
                 end
             end)
 
         elseif userId == BANRI_ID then
-            -- Banri — violet with neon glow effect
             local bb, lbl, outline = buildTag(head, {
-                text       = "✦ Banri ✦",
-                color      = Color3.fromRGB(170, 80, 255),
-                strokeColor = Color3.fromRGB(90, 0, 180),
-                strokeTrans = 0,
-                size       = 16,
-                width      = 160,
-                height     = 40,
-                yoff       = 2.4,
+                text = "✦ Banri ✦", color = Color3.fromRGB(170,80,255),
+                stroke = Color3.fromRGB(90,0,180), strokeT = 0,
+                size = 19, w = 190, h = 48, y = 2.5,
             })
-            -- Neon glow: pulse the stroke transparency to simulate glow
             local gc = RunService.Heartbeat:Connect(function()
                 if not head.Parent then gc:Disconnect() return end
-                local t = tick()
-                local pulse = math.abs(math.sin(t * 2.5))  -- 0 to 1, smooth
-                -- The "glow" is faked by cycling stroke transparency
-                lbl.TextStrokeTransparency = 1 - pulse * 0.9
+                local pulse = math.abs(math.sin(tick() * 2.5))
+                lbl.TextStrokeTransparency    = 1 - pulse * 0.9
                 outline.TextStrokeTransparency = 1 - pulse * 0.6
-                -- Slight colour shift from violet to pink on the pulse peak
-                local r = math.floor(170 + pulse * 60)
-                local g = math.floor(80  - pulse * 20)
-                local b = 255
-                lbl.TextColor3 = Color3.fromRGB(math.min(r,255), math.max(g,0), b)
+                lbl.TextColor3 = Color3.fromRGB(math.min(math.floor(170+pulse*60),255), math.max(math.floor(80-pulse*20),0), 255)
             end)
 
-        else
-            -- Standard Ghoul User — clean white with white outline
+        elseif userId == TEA_ID then
             buildTag(head, {
-                text       = "Ghoul User",
-                color      = Color3.fromRGB(220, 220, 220),
-                strokeColor = Color3.fromRGB(0, 0, 0),
-                strokeTrans = 0.6,
-                size       = 13,
-                width      = 150,
-                height     = 32,
-                yoff       = 2.1,
+                text = "Tea Drinker", color = Color3.fromRGB(255,182,210),
+                stroke = Color3.fromRGB(120,40,80), strokeT = 0.2,
+                size = 17, w = 200, h = 44, y = 2.4,
+            })
+
+        else
+            buildTag(head, {
+                text = "Ghoul User", color = Color3.fromRGB(220,220,220),
+                stroke = Color3.fromRGB(0,0,0), strokeT = 0.5,
+                size = 17, w = 180, h = 42, y = 2.3,
             })
         end
     end
 
-    -- Apply tag to the local player (they injected the script)
+    -- Self tag — only the injector gets "Ghoul User" (or their VIP tag)
+    -- CharacterAdded fires on respawn AND on outfit/model swaps (Mic Up modify etc.)
     local function setupSelfTag(char)
         if not char then return end
         task.wait(0.5)
-        local head = char:FindFirstChild("Head")
-        if not head then return end
+        local head = char:FindFirstChild("Head"); if not head then return end
         applyTagForId(LocalPlayer.UserId, head)
     end
-
     if LocalPlayer.Character then task.spawn(setupSelfTag, LocalPlayer.Character) end
-    LocalPlayer.CharacterAdded:Connect(setupSelfTag)
+    LocalPlayer.CharacterAdded:Connect(function(char) task.spawn(setupSelfTag, char) end)
 
-    -- For special known user IDs, apply their tag when they're in the server
-    -- (even if they didn't inject — these are hardcoded VIPs)
+    -- VIP tags — apply to hardcoded IDs whenever they're in the server
+    local VIP_IDS = { OWNER_ID, CIVITCC_ID, BANRI_ID, TEA_ID }
     local function checkVIPTag(plr)
-        local vipIds = { OWNER_ID, CIVITCC_ID, BANRI_ID }
         local isVIP = false
-        for _, id in ipairs(vipIds) do
-            if plr.UserId == id then isVIP = true break end
-        end
+        for _, id in ipairs(VIP_IDS) do if plr.UserId == id then isVIP = true break end end
         if not isVIP then return end
-
         local function setup(char)
             task.wait(0.5)
-            local head = char and char:FindFirstChild("Head")
-            if not head then return end
+            local head = char and char:FindFirstChild("Head"); if not head then return end
             applyTagForId(plr.UserId, head)
         end
-
         if plr.Character then task.spawn(setup, plr.Character) end
-        plr.CharacterAdded:Connect(setup)
+        -- Also reconnect on character change so outfit swaps persist the tag
+        plr.CharacterAdded:Connect(function(char) task.spawn(setup, char) end)
     end
-
-    for _, plr in ipairs(Players:GetPlayers()) do
-        checkVIPTag(plr)
-    end
+    for _, plr in ipairs(Players:GetPlayers()) do checkVIPTag(plr) end
     Players.PlayerAdded:Connect(checkVIPTag)
 
     -- X key: open/close the commands panel (same as clicking the UI pill)
