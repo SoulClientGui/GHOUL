@@ -1229,18 +1229,21 @@ local function toggleJerk() openJerkGui() end
 
 -- ── LOCK (Silent Aim + Aimlock + FOV) ────────────────────────
 local lockGuiRef      = nil
-local lockTarget      = nil   -- target player
+local lockTarget      = nil
 local lockActive      = false
 local aimlockConn     = nil
 local silentAimActive = false
 local aimlockEnabled  = false
-local lockFOV         = 150   -- radius in pixels
+local lockFOV         = 150
 local lockFovGui      = nil
+local fovHidden       = false   -- toggled by H key to hide circle + kill aim
 
--- FOV circle drawn on screen
+-- Rebuild the FOV circle. Respects fovHidden so H key hides it instantly.
 local function updateFovCircle()
     if lockFovGui then lockFovGui:Destroy() lockFovGui = nil end
     if not (silentAimActive or aimlockEnabled) then return end
+    if fovHidden then return end
+
     local FG = Instance.new("ScreenGui")
     FG.Name = "GhoulFOV"
     FG.ResetOnSpawn = false
@@ -1248,27 +1251,45 @@ local function updateFovCircle()
     FG.Parent = PlayerGui
     lockFovGui = FG
 
-    -- Draw circle using many thin frames arranged around a centre point
-    local cx, cy = 0.5, 0.5  -- screen centre
+    local cx, cy = 0.5, 0.5
     local segments = 64
     for i = 1, segments do
-        local angle = (i / segments) * math.pi * 2
+        local angle     = (i / segments) * math.pi * 2
         local nextAngle = ((i + 1) / segments) * math.pi * 2
-        local x1 = cx + math.cos(angle) * (lockFOV / Camera.ViewportSize.X)
-        local y1 = cy + math.sin(angle) * (lockFOV / Camera.ViewportSize.Y)
+        local x1 = cx + math.cos(angle)     * (lockFOV / Camera.ViewportSize.X)
+        local y1 = cy + math.sin(angle)     * (lockFOV / Camera.ViewportSize.Y)
         local x2 = cx + math.cos(nextAngle) * (lockFOV / Camera.ViewportSize.X)
         local y2 = cy + math.sin(nextAngle) * (lockFOV / Camera.ViewportSize.Y)
         local dx, dy = x2 - x1, y2 - y1
         local len = math.sqrt(dx*dx + dy*dy)
         local seg = Instance.new("Frame")
-        seg.BackgroundColor3 = Color3.fromRGB(255,255,255)
-        seg.BorderSizePixel = 0
-        seg.Size = UDim2.new(len, 0, 0, 1)
-        seg.Position = UDim2.new(x1, 0, y1, 0)
-        seg.Rotation = math.deg(math.atan2(dy, dx))
-        seg.ZIndex = 5
-        seg.Parent = FG
+        seg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        seg.BorderSizePixel  = 0
+        seg.Size             = UDim2.new(len, 0, 0, 1)
+        seg.Position         = UDim2.new(x1, 0, y1, 0)
+        seg.Rotation         = math.deg(math.atan2(dy, dx))
+        seg.ZIndex           = 5
+        seg.Parent           = FG
     end
+end
+
+-- Turns off aimlock, silent aim and FOV circle all at once.
+-- Called either by the keybind or programmatically.
+local function killAllLock(saBtn, alBtn)
+    silentAimActive = false
+    aimlockEnabled  = false
+    if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
+    RunService:UnbindFromRenderStep("GhoulSilentAim")
+    if lockFovGui then lockFovGui:Destroy() lockFovGui = nil end
+    if saBtn then
+        saBtn.Text = "Silent Aim: OFF"
+        saBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    end
+    if alBtn then
+        alBtn.Text = "Aimlock: OFF"
+        alBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    end
+    showToast("Lock — all OFF")
 end
 
 -- Get player within FOV closest to screen centre
@@ -1404,13 +1425,22 @@ local function openLockGui()
                 local target = lockTarget or getTargetInFOV()
                 if not target or not target.Character then return end
                 local head = target.Character:FindFirstChild("Head"); if not head then return end
-                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                local hrp  = target.Character:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+
+                -- Velocity prediction — same logic as aimlock so both are consistent
+                local vel       = hrp.AssemblyLinearVelocity
+                local dist      = (Camera.CFrame.Position - head.Position).Magnitude
+                local lookahead = 0.08 + dist / 1500
+                local predicted = head.Position + vel * lookahead
+
+                local screenPos, onScreen = Camera:WorldToViewportPoint(predicted)
                 if not onScreen then return end
                 local vp = Camera.ViewportSize
                 local dx = screenPos.X - vp.X/2
                 local dy = screenPos.Y - vp.Y/2
                 if math.sqrt(dx*dx+dy*dy) <= lockFOV then
-                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, head.Position), 0.2)
+                    -- Soft lerp for silent aim so it feels natural — not snappy
+                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, predicted), 0.25)
                 end
             end)
         else
@@ -3136,8 +3166,31 @@ local function buildStatusBar()
 
     makePad(5).Parent=Bar makeDivider().Parent=Bar makePad(5).Parent=Bar
 
-    local TagsPill=makePill(Color3.fromRGB(255,255,255),"Tags",nil,true)
-    TagsPill.Parent=Bar
+    local TagsPill = makePill(Color3.fromRGB(255,255,255), "Tags", nil, true)
+    TagsPill.Parent = Bar
+    local tagsVisible = true
+    TagsPill.MouseEnter:Connect(function()
+        TweenService:Create(TagsPill, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(45,40,60)}):Play()
+    end)
+    TagsPill.MouseLeave:Connect(function()
+        local col = tagsVisible and Color3.fromRGB(28,24,38) or Color3.fromRGB(60,20,20)
+        TweenService:Create(TagsPill, TweenInfo.new(0.1), {BackgroundColor3 = col}):Play()
+    end)
+    TagsPill.MouseButton1Click:Connect(function()
+        tagsVisible = not tagsVisible
+        -- Toggle all GhoulNameTag BillboardGuis in the whole workspace
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr.Character then
+                local head = plr.Character:FindFirstChild("Head")
+                if head then
+                    local tag = head:FindFirstChild("GhoulNameTag")
+                    if tag then tag.Enabled = tagsVisible end
+                end
+            end
+        end
+        TagsPill.BackgroundColor3 = tagsVisible and Color3.fromRGB(28,24,38) or Color3.fromRGB(60,20,20)
+        showToast(tagsVisible and "Tags  ON" or "Tags  OFF")
+    end)
 
     makePad(5).Parent=Bar makeDivider().Parent=Bar makePad(5).Parent=Bar
 
@@ -3324,6 +3377,35 @@ local function buildStatusBar()
     end
     for _, plr in ipairs(Players:GetPlayers()) do checkVIPTag(plr) end
     Players.PlayerAdded:Connect(checkVIPTag)
+
+    -- H key: hide FOV circle + kill silent aim + kill aimlock all at once
+    -- Press again to bring the FOV circle back (aim stays off until you re-enable)
+    UserInputService.InputBegan:Connect(function(inp, gp)
+        if gp and UserInputService:GetFocusedTextBox() then return end
+        if inp.KeyCode ~= Enum.KeyCode.H then return end
+
+        fovHidden = not fovHidden
+
+        if fovHidden then
+            -- Destroy the circle
+            if lockFovGui then lockFovGui:Destroy() lockFovGui = nil end
+            -- Kill silent aim
+            if silentAimActive then
+                silentAimActive = false
+                RunService:UnbindFromRenderStep("GhoulSilentAim")
+            end
+            -- Kill aimlock
+            if aimlockEnabled then
+                aimlockEnabled = false
+                if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
+            end
+            showToast("H — Aim OFF + FOV hidden")
+        else
+            -- Redraw circle if either aim mode is on
+            updateFovCircle()
+            showToast("H — FOV visible")
+        end
+    end)
 
     -- X key: open/close the commands panel (same as clicking the UI pill)
     UserInputService.InputBegan:Connect(function(inp, gameProcessed)
