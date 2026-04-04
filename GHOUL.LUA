@@ -610,48 +610,47 @@ local function openSpeedGui()
 
     local _, getSpd = makeSlider(Body, 8, "Walk Speed", 16, 500, lockedSpeed)
 
-    -- Apply button sets speed and locks it via heartbeat so game can't reset it
-    local ApplyBtn = makeBtn(Body, 68, 14, speedLocked and "Speed LOCKED" or "Apply + Lock", 108)
-    ApplyBtn.BackgroundColor3 = speedLocked and Color3.fromRGB(20,100,20) or Color3.fromRGB(35,35,35)
+    local StatusLbl = Instance.new("TextLabel")
+    StatusLbl.Size = UDim2.new(1,-28,0,18)
+    StatusLbl.Position = UDim2.new(0,14,0,52)
+    StatusLbl.BackgroundTransparency = 1
+    StatusLbl.Text = speedLocked and ("Active: "..lockedSpeed) or "Drag slider — applies live"
+    StatusLbl.TextColor3 = Color3.fromRGB(130,130,130)
+    StatusLbl.Font = Enum.Font.Gotham
+    StatusLbl.TextSize = 11
+    StatusLbl.TextXAlignment = Enum.TextXAlignment.Left
+    StatusLbl.ZIndex = 52
+    StatusLbl.Parent = Body
 
-    local ResetBtn = makeBtn(Body, 68, 136, "Reset (16)", 108)
+    local ResetBtn = makeBtn(Body, 78, 136, "Reset (16)", 108)
 
-    ApplyBtn.MouseButton1Click:Connect(function()
-        lockedSpeed = getSpd()
-        speedLocked = true
-        ApplyBtn.Text = "Speed LOCKED"
-        ApplyBtn.BackgroundColor3 = Color3.fromRGB(20,100,20)
+    -- Live-apply: start locked immediately, slider changes update in real time
+    speedLocked = true
+    lockedSpeed = getSpd()
 
-        -- Apply immediately
-        local char = LocalPlayer.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then hum.WalkSpeed = lockedSpeed end
+    if speedConn then speedConn:Disconnect() end
+    speedConn = RunService.Heartbeat:Connect(function()
+        if not speedLocked then
+            if speedConn then speedConn:Disconnect() speedConn = nil end
+            return
         end
-
-        -- Heartbeat keeps reapplying so the game can't override it
-        if speedConn then speedConn:Disconnect() end
-        speedConn = RunService.Heartbeat:Connect(function()
-            if not speedLocked then
-                if speedConn then speedConn:Disconnect() speedConn = nil end
-                return
-            end
-            local c = LocalPlayer.Character; if not c then return end
-            local h = c:FindFirstChildOfClass("Humanoid"); if not h then return end
-            if h.WalkSpeed ~= lockedSpeed then
-                h.WalkSpeed = lockedSpeed
-            end
-        end)
-
-        showToast("Speed locked at " .. lockedSpeed)
+        local spd = getSpd()
+        if spd ~= lockedSpeed then
+            lockedSpeed = spd
+            StatusLbl.Text = "Speed: " .. lockedSpeed
+        end
+        local c = LocalPlayer.Character; if not c then return end
+        local h = c:FindFirstChildOfClass("Humanoid"); if not h then return end
+        if h.WalkSpeed ~= lockedSpeed then
+            h.WalkSpeed = lockedSpeed
+        end
     end)
 
     ResetBtn.MouseButton1Click:Connect(function()
         speedLocked = false
         lockedSpeed = 16
         if speedConn then speedConn:Disconnect() speedConn = nil end
-        ApplyBtn.Text = "Apply + Lock"
-        ApplyBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+        StatusLbl.Text = "Speed reset to 16"
         local char = LocalPlayer.Character
         if char then
             local hum = char:FindFirstChildOfClass("Humanoid")
@@ -662,7 +661,10 @@ local function openSpeedGui()
 
     G.AncestryChanged:Connect(function()
         if not G.Parent then speedGuiRef = nil end
+        -- Note: speedConn keeps running after GUI closes so speed stays locked
     end)
+
+    showToast("Speed active — drag slider to change")
 end
 
 -- ── JUMP POWER ───────────────────────────────────────────────
@@ -1318,19 +1320,19 @@ local function getTargetInFOV()
     return bestPlr
 end
 
-local lockKeybind = Enum.KeyCode.Unknown  -- no keybind by default, use FOV auto
+local lockKeybind    = Enum.KeyCode.Unknown
+local fovHideKeybind = Enum.KeyCode.Unknown
 
 local function openLockGui()
     if lockGuiRef then lockGuiRef:Destroy() lockGuiRef = nil end
-    local G, Body = buildMiniGui("Lock / Aim", 290, 380, 300, 100)
+    local G, Body = buildMiniGui("Lock / Aim", 290, 440, 300, 100)
     lockGuiRef = G
 
-    -- Status label
     local StatusLbl = Instance.new("TextLabel")
     StatusLbl.Size = UDim2.new(1,-28,0,18)
     StatusLbl.Position = UDim2.new(0,14,0,6)
     StatusLbl.BackgroundTransparency = 1
-    StatusLbl.Text = "No target — auto aims at nearest in FOV"
+    StatusLbl.Text = "No target — auto aims nearest in FOV"
     StatusLbl.TextColor3 = Color3.fromRGB(150,150,150)
     StatusLbl.Font = Enum.Font.Gotham
     StatusLbl.TextSize = 11
@@ -1338,108 +1340,118 @@ local function openLockGui()
     StatusLbl.ZIndex = 52
     StatusLbl.Parent = Body
 
-    -- Player list: y=26, height=70
     makePlayerList(Body, 26, 70, function(plr)
         lockTarget = plr
-        StatusLbl.Text = "Target locked: " .. plr.DisplayName
-        showToast("Locked → " .. plr.DisplayName)
+        StatusLbl.Text = "Target: " .. plr.DisplayName
+        showToast("Locked \226\134\146 " .. plr.DisplayName)
     end)
 
-    -- Clear target button (deselect so it falls back to FOV auto)
-    local ClearBtn = makeBtn(Body, 168, 14, "✕  Clear Target (use FOV)", 242)
+    local ClearBtn = makeBtn(Body, 168, 14, "\226\156\149  Clear Target (FOV auto)", 242)
     ClearBtn.MouseButton1Click:Connect(function()
         lockTarget = nil
-        StatusLbl.Text = "No target — auto aims at nearest in FOV"
-        showToast("Target cleared — FOV auto mode")
+        StatusLbl.Text = "No target — auto aims nearest in FOV"
+        showToast("Target cleared — FOV auto")
     end)
 
-    -- FOV slider: y=210
     local _, getFOV = makeSlider(Body, 210, "FOV Radius (px)", 20, 800, lockFOV)
 
-    -- Keybind picker: y=272
-    local KeyLbl = Instance.new("TextLabel")
-    KeyLbl.Size = UDim2.new(1,-28,0,16)
-    KeyLbl.Position = UDim2.new(0,14,0,272)
-    KeyLbl.BackgroundTransparency = 1
-    KeyLbl.Text = "Keybind to toggle aimlock:"
-    KeyLbl.TextColor3 = Color3.fromRGB(140,140,140)
-    KeyLbl.Font = Enum.Font.Gotham
-    KeyLbl.TextSize = 11
-    KeyLbl.TextXAlignment = Enum.TextXAlignment.Left
-    KeyLbl.ZIndex = 52
-    KeyLbl.Parent = Body
-
-    local KeyBindBtn = makeBtn(Body, 291, 14, lockKeybind == Enum.KeyCode.Unknown and "Press to set keybind" or "Key: " .. tostring(lockKeybind.Name), 242)
-    local listening = false
-    KeyBindBtn.MouseButton1Click:Connect(function()
-        listening = true
-        KeyBindBtn.Text = "Press any key..."
-        KeyBindBtn.BackgroundColor3 = Color3.fromRGB(60,40,10)
-    end)
-    UserInputService.InputBegan:Connect(function(inp, gp)
-        if not listening then return end
-        if inp.UserInputType ~= Enum.UserInputType.Keyboard then return end
-        listening = false
-        lockKeybind = inp.KeyCode
-        KeyBindBtn.Text = "Key: " .. inp.KeyCode.Name
-        KeyBindBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
-        showToast("Aimlock keybind → " .. inp.KeyCode.Name)
-    end)
-
-    -- Silent Aim + Aimlock buttons: y=332
-    local SABtn = makeBtn(Body, 332, 14, silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF", 128)
+    local SABtn = makeBtn(Body, 272, 14, silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF", 128)
     SABtn.BackgroundColor3 = silentAimActive and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
-
-    local ALBtn = makeBtn(Body, 332, 150, aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF", 126)
+    local ALBtn = makeBtn(Body, 272, 150, aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF", 126)
     ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
 
-    -- Live FOV update
-    local fovConn = RunService.Heartbeat:Connect(function()
-        lockFOV = getFOV()
+    local KLabel = Instance.new("TextLabel")
+    KLabel.Size = UDim2.new(1,-28,0,14)
+    KLabel.Position = UDim2.new(0,14,0,315)
+    KLabel.BackgroundTransparency = 1
+    KLabel.Text = "Keybinds:"
+    KLabel.TextColor3 = Color3.fromRGB(120,120,120)
+    KLabel.Font = Enum.Font.Gotham
+    KLabel.TextSize = 11
+    KLabel.TextXAlignment = Enum.TextXAlignment.Left
+    KLabel.ZIndex = 52
+    KLabel.Parent = Body
+
+    local KillBtn = makeBtn(Body, 333, 14, lockKeybind == Enum.KeyCode.Unknown and "Set kill-all key" or "Kill: "..lockKeybind.Name, 118)
+    local FovKBtn = makeBtn(Body, 333, 148, fovHideKeybind == Enum.KeyCode.Unknown and "Set FOV hide key" or "FOV: "..fovHideKeybind.Name, 118)
+
+    local listeningKill, listeningFov = false, false
+    KillBtn.MouseButton1Click:Connect(function()
+        listeningKill = true
+        KillBtn.Text = "Press any key..."
+        KillBtn.BackgroundColor3 = Color3.fromRGB(80,20,20)
+    end)
+    FovKBtn.MouseButton1Click:Connect(function()
+        listeningFov = true
+        FovKBtn.Text = "Press any key..."
+        FovKBtn.BackgroundColor3 = Color3.fromRGB(60,40,10)
     end)
 
-    -- Keybind listener for toggling aimlock in-game
-    local keybindConn = UserInputService.InputBegan:Connect(function(inp, gp)
+    local fovConn = RunService.Heartbeat:Connect(function() lockFOV = getFOV() end)
+
+    local inputConn = UserInputService.InputBegan:Connect(function(inp, gp)
         if gp and UserInputService:GetFocusedTextBox() then return end
-        if lockKeybind == Enum.KeyCode.Unknown then return end
-        if inp.KeyCode ~= lockKeybind then return end
-        aimlockEnabled = not aimlockEnabled
-        ALBtn.Text = aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF"
-        ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
-        showToast(aimlockEnabled and "Aimlock ON" or "Aimlock OFF")
+        if inp.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+        if listeningKill then
+            listeningKill = false
+            lockKeybind = inp.KeyCode
+            KillBtn.Text = "Kill: " .. inp.KeyCode.Name
+            KillBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+            showToast("Kill-all key \226\134\146 " .. inp.KeyCode.Name)
+            return
+        end
+        if listeningFov then
+            listeningFov = false
+            fovHideKeybind = inp.KeyCode
+            FovKBtn.Text = "FOV: " .. inp.KeyCode.Name
+            FovKBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+            showToast("FOV hide key \226\134\146 " .. inp.KeyCode.Name)
+            return
+        end
+
+        if fovHideKeybind ~= Enum.KeyCode.Unknown and inp.KeyCode == fovHideKeybind then
+            fovVisible = not fovVisible
+            updateFovCircle()
+            showToast(fovVisible and "FOV circle shown" or "FOV circle hidden")
+            return
+        end
+
+        if lockKeybind ~= Enum.KeyCode.Unknown and inp.KeyCode == lockKeybind then
+            silentAimActive = false
+            aimlockEnabled  = false
+            if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
+            RunService:UnbindFromRenderStep("GhoulSilentAim")
+            if lockFovGui then lockFovGui:Destroy() lockFovGui = nil end
+            SABtn.Text = "Silent Aim: OFF"; SABtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+            ALBtn.Text = "Aimlock: OFF";    ALBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+            showToast("Lock — all OFF")
+        end
     end)
 
     SABtn.MouseButton1Click:Connect(function()
         silentAimActive = not silentAimActive
         SABtn.Text = silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF"
         SABtn.BackgroundColor3 = silentAimActive and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
-        lockFOV = getFOV()
-        updateFovCircle()
+        lockFOV = getFOV(); updateFovCircle()
         showToast(silentAimActive and "Silent Aim ON" or "Silent Aim OFF")
         if silentAimActive then
             RunService:BindToRenderStep("GhoulSilentAim", 200, function()
-                if not silentAimActive then
-                    RunService:UnbindFromRenderStep("GhoulSilentAim"); return
-                end
+                if not silentAimActive then RunService:UnbindFromRenderStep("GhoulSilentAim"); return end
                 lockFOV = getFOV()
                 local target = lockTarget or getTargetInFOV()
                 if not target or not target.Character then return end
                 local head = target.Character:FindFirstChild("Head"); if not head then return end
-                local hrp  = target.Character:FindFirstChild("HumanoidRootPart"); if not hrp then return end
-
-                -- Velocity prediction — same logic as aimlock so both are consistent
-                local vel       = hrp.AssemblyLinearVelocity
-                local dist      = (Camera.CFrame.Position - head.Position).Magnitude
-                local lookahead = 0.08 + dist / 1500
-                local predicted = head.Position + vel * lookahead
-
-                local screenPos, onScreen = Camera:WorldToViewportPoint(predicted)
-                if not onScreen then return end
+                local hrp  = target.Character:FindFirstChild("HumanoidRootPart")
+                local predicted = head.Position
+                if hrp then
+                    local dist = (Camera.CFrame.Position - head.Position).Magnitude
+                    predicted  = head.Position + hrp.AssemblyLinearVelocity * (0.08 + dist/1500)
+                end
+                local sp, on = Camera:WorldToViewportPoint(predicted)
+                if not on then sp, on = Camera:WorldToViewportPoint(head.Position) if not on then return end predicted = head.Position end
                 local vp = Camera.ViewportSize
-                local dx = screenPos.X - vp.X/2
-                local dy = screenPos.Y - vp.Y/2
-                if math.sqrt(dx*dx+dy*dy) <= lockFOV then
-                    -- Soft lerp for silent aim so it feels natural — not snappy
+                if math.sqrt((sp.X-vp.X/2)^2+(sp.Y-vp.Y/2)^2) <= lockFOV then
                     Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, predicted), 0.25)
                 end
             end)
@@ -1452,63 +1464,101 @@ local function openLockGui()
         aimlockEnabled = not aimlockEnabled
         ALBtn.Text = aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF"
         ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
-        lockFOV = getFOV()
-        updateFovCircle()
-        showToast(aimlockEnabled and "Aimlock ON" or "Aimlock OFF")
-        if aimlockEnabled then
-            if aimlockConn then aimlockConn:Disconnect() end
-            aimlockConn = RunService.RenderStepped:Connect(function()
-                if not aimlockEnabled then
-                    if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
-                    return
-                end
-                lockFOV = getFOV()
-                local target = lockTarget or getTargetInFOV()
-                if not target or not target.Character then return end
+        lockFOV = getFOV(); updateFovCircle()
 
-                local head = target.Character:FindFirstChild("Head")
-                local hrp  = target.Character:FindFirstChild("HumanoidRootPart")
-                if not head or not hrp then return end
+        -- Aimlock always toggles silent aim with it
+        silentAimActive = aimlockEnabled
+        SABtn.Text = aimlockEnabled and "Silent Aim: ON" or "Silent Aim: OFF"
+        SABtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
 
-                -- Aggressive velocity prediction for games like DaHood/ZeeHood
-                -- where players macro-click and move at high speeds
-                local vel      = hrp.AssemblyLinearVelocity
-                local dist     = (Camera.CFrame.Position - head.Position).Magnitude
-                -- More aggressive lookahead for high-speed macro situations
-                local lookahead = 0.08 + (dist / 1500)
-                -- Also factor in vertical velocity (jumping macros)
-                local predicted = head.Position + vel * lookahead
+        showToast(aimlockEnabled and "Aimlock + Silent Aim ON" or "Aimlock + Silent Aim OFF")
 
-                local screenPos, onScreen = Camera:WorldToViewportPoint(predicted)
-                if not onScreen then
-                    -- Target went off screen — still try to snap to raw head pos
-                    local rawScreen, rawOn = Camera:WorldToViewportPoint(head.Position)
-                    if not rawOn then return end
-                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
-                    return
-                end
-
-                local vp = Camera.ViewportSize
-                local dx = screenPos.X - vp.X / 2
-                local dy = screenPos.Y - vp.Y / 2
-
-                if math.sqrt(dx*dx + dy*dy) <= lockFOV then
-                    -- Instant hard snap — no lerp — essential for macro situations
-                    -- where the target moves faster than a smooth lerp can track
-                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, predicted)
-                end
-            end)
-        else
+        if not aimlockEnabled then
             if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
+            RunService:UnbindFromRenderStep("GhoulSilentAim")
+            return
         end
+
+        -- Advanced prediction: track velocity history for acceleration-aware extrapolation
+        local velHistory = {}        -- ring buffer of recent velocities
+        local velHistoryMax = 6      -- samples to keep
+        local lastHRPPos = nil
+        local lastTick   = tick()
+
+        RunService:UnbindFromRenderStep("GhoulSilentAim")  -- clear any old silent aim
+
+        if aimlockConn then aimlockConn:Disconnect() end
+        aimlockConn = RunService.RenderStepped:Connect(function(dt)
+            if not aimlockEnabled then
+                if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
+                RunService:UnbindFromRenderStep("GhoulSilentAim")
+                return
+            end
+
+            lockFOV = getFOV()
+            local target = lockTarget or getTargetInFOV()
+            if not target or not target.Character then return end
+
+            local head = target.Character:FindFirstChild("Head")
+            local hrp  = target.Character:FindFirstChild("HumanoidRootPart")
+            if not head or not hrp then return end
+
+            -- Sample velocity and build acceleration estimate from history
+            local curVel = hrp.AssemblyLinearVelocity
+
+            -- Push into history ring buffer
+            table.insert(velHistory, curVel)
+            if #velHistory > velHistoryMax then table.remove(velHistory, 1) end
+
+            -- Average recent velocities for smoothed prediction
+            local avgVel = Vector3.zero
+            for _, v in ipairs(velHistory) do avgVel = avgVel + v end
+            avgVel = avgVel / math.max(#velHistory, 1)
+
+            -- Acceleration = change in velocity over time
+            local accel = Vector3.zero
+            if #velHistory >= 2 then
+                local newest = velHistory[#velHistory]
+                local oldest = velHistory[1]
+                accel = (newest - oldest) / math.max(#velHistory * dt, 0.01)
+            end
+
+            local camPos = Camera.CFrame.Position
+            local dist   = (camPos - head.Position).Magnitude
+
+            -- Dynamic lookahead: base 80ms + distance factor + acceleration bonus
+            local lookahead = 0.08 + dist / 1200 + accel.Magnitude * 0.002
+
+            -- Predicted position using velocity + half-acceleration (kinematic)
+            local predicted = head.Position
+                + avgVel   * lookahead
+                + accel    * (lookahead * lookahead * 0.5)
+
+            -- Clamp to reasonable range so we don't wildly overshoot
+            local predDist = (predicted - head.Position).Magnitude
+            if predDist > dist * 0.5 then
+                predicted = head.Position + (predicted - head.Position).Unit * (dist * 0.5)
+            end
+
+            local sp, on = Camera:WorldToViewportPoint(predicted)
+            if not on then
+                -- Fallback: lock directly to head
+                Camera.CFrame = CFrame.new(camPos, head.Position)
+                return
+            end
+
+            local vp = Camera.ViewportSize
+            local screenDist = math.sqrt((sp.X - vp.X/2)^2 + (sp.Y - vp.Y/2)^2)
+
+            if screenDist <= lockFOV then
+                -- Hard snap — no lerp for maximum accuracy on fast macros
+                Camera.CFrame = CFrame.new(camPos, predicted)
+            end
+        end)
     end)
 
     G.AncestryChanged:Connect(function()
-        if not G.Parent then
-            lockGuiRef = nil
-            fovConn:Disconnect()
-            keybindConn:Disconnect()
-        end
+        if not G.Parent then lockGuiRef = nil; fovConn:Disconnect(); inputConn:Disconnect() end
     end)
 end
 local function toggleLock() openLockGui() end
@@ -3238,20 +3288,40 @@ local function buildStatusBar()
 
         local bb = Instance.new("BillboardGui")
         bb.Name         = "GhoulNameTag"
-        bb.Size         = UDim2.new(0, cfg.w or 200, 0, cfg.h or 44)
-        bb.StudsOffset  = Vector3.new(0, cfg.y or 2.4, 0)
+        bb.Size         = UDim2.new(0, cfg.w or 220, 0, cfg.h or 54)
+        bb.StudsOffset  = Vector3.new(0, cfg.y or 2.6, 0)
         bb.AlwaysOnTop  = false
         bb.MaxDistance  = 80
         bb.ResetOnSpawn = false
         bb.Parent       = head
 
+        -- Black pill background
+        local bg = Instance.new("Frame")
+        bg.Size                   = UDim2.new(1, 0, 1, 0)
+        bg.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+        bg.BackgroundTransparency = 0.35
+        bg.BorderSizePixel        = 0
+        bg.ZIndex                 = 3
+        bg.Parent                 = bb
+        local bgCorner = Instance.new("UICorner")
+        bgCorner.CornerRadius = UDim.new(0, 12)
+        bgCorner.Parent = bg
+
+        -- White border stroke on the background
+        local bgStroke = Instance.new("UIStroke")
+        bgStroke.Color     = Color3.fromRGB(255, 255, 255)
+        bgStroke.Thickness = 2.5
+        bgStroke.Transparency = 0
+        bgStroke.Parent    = bg
+
+        -- White outline text label behind main label for readability
         local outline = Instance.new("TextLabel")
-        outline.Size                   = UDim2.new(1, 2, 1, 2)
-        outline.Position               = UDim2.new(0, -1, 0, -1)
+        outline.Size                   = UDim2.new(1, 8, 1, 8)
+        outline.Position               = UDim2.new(0, -4, 0, -4)
         outline.BackgroundTransparency = 1
         outline.Font                   = Enum.Font.GothamBold
         outline.TextScaled             = false
-        outline.TextSize               = cfg.size or 17
+        outline.TextSize               = (cfg.size or 20) + 1
         outline.Text                   = cfg.text
         outline.TextColor3             = Color3.fromRGB(255, 255, 255)
         outline.TextStrokeColor3       = Color3.fromRGB(255, 255, 255)
@@ -3264,13 +3334,35 @@ local function buildStatusBar()
         lbl.BackgroundTransparency = 1
         lbl.Font                   = Enum.Font.GothamBold
         lbl.TextScaled             = false
-        lbl.TextSize               = cfg.size or 17
+        lbl.TextSize               = cfg.size or 20
         lbl.Text                   = cfg.text
         lbl.TextColor3             = cfg.color
         lbl.TextStrokeColor3       = cfg.stroke or Color3.fromRGB(0, 0, 0)
-        lbl.TextStrokeTransparency = cfg.strokeT or 0.4
+        lbl.TextStrokeTransparency = cfg.strokeT or 0.3
         lbl.ZIndex                 = 5
         lbl.Parent                 = bb
+
+        -- E key to teleport to this player
+        -- We listen globally for E key and check which player is closest to crosshair
+        -- The BillboardGui has an invisible TextButton overlay that catches click/tap too
+        local clickBtn = Instance.new("TextButton")
+        clickBtn.Size                   = UDim2.new(1, 0, 1, 0)
+        clickBtn.BackgroundTransparency = 1
+        clickBtn.Text                   = ""
+        clickBtn.ZIndex                 = 6
+        clickBtn.Parent                 = bb
+        clickBtn.MouseButton1Click:Connect(function()
+            -- Click the tag to teleport
+            local myChar = LocalPlayer.Character; if not myChar then return end
+            local myHRP  = myChar:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
+            if head and head.Parent then
+                local targetHRP = head.Parent:FindFirstChild("HumanoidRootPart")
+                if targetHRP then
+                    myHRP.CFrame = targetHRP.CFrame + Vector3.new(3, 0, 0)
+                    showToast("Teleported to " .. head.Parent.Name)
+                end
+            end
+        end)
 
         return bb, lbl, outline
     end
@@ -3407,10 +3499,33 @@ local function buildStatusBar()
         end
     end)
 
-    -- X key: open/close the commands panel (same as clicking the UI pill)
+    -- E key: teleport to the closest player who has a GhoulNameTag
+    UserInputService.InputBegan:Connect(function(inp, gp)
+        if gp and UserInputService:GetFocusedTextBox() then return end
+        if inp.KeyCode ~= Enum.KeyCode.E then return end
+        local myChar = LocalPlayer.Character; if not myChar then return end
+        local myHRP  = myChar:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
+        local best, bestDist = nil, math.huge
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local tHRP = plr.Character:FindFirstChild("HumanoidRootPart")
+                local head = plr.Character:FindFirstChild("Head")
+                if tHRP and head and head:FindFirstChild("GhoulNameTag") then
+                    local d = (tHRP.Position - myHRP.Position).Magnitude
+                    if d < bestDist then bestDist = d; best = tHRP end
+                end
+            end
+        end
+        if best then
+            myHRP.CFrame = best.CFrame + Vector3.new(3, 0, 0)
+            showToast("E — Teleported to " .. best.Parent.Name)
+        end
+    end)
+
+    -- Comma key: open/close the commands panel (matches the requested keybind)
     UserInputService.InputBegan:Connect(function(inp, gameProcessed)
         if gameProcessed then return end
-        if inp.KeyCode == Enum.KeyCode.X then
+        if inp.KeyCode == Enum.KeyCode.Comma then
             buildCommandsPanel()
         end
     end)
