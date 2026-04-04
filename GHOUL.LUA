@@ -1322,10 +1322,24 @@ end
 
 local lockKeybind    = Enum.KeyCode.Unknown
 local fovHideKeybind = Enum.KeyCode.Unknown
+local silentAimKeyHeld = false  -- K key hold state for silent aim
+
+-- Global K key listener for hold-to-silent-aim
+UserInputService.InputBegan:Connect(function(inp, gp)
+    if gp and UserInputService:GetFocusedTextBox() then return end
+    if inp.KeyCode == Enum.KeyCode.K then
+        silentAimKeyHeld = true
+    end
+end)
+UserInputService.InputEnded:Connect(function(inp)
+    if inp.KeyCode == Enum.KeyCode.K then
+        silentAimKeyHeld = false
+    end
+end)
 
 local function openLockGui()
     if lockGuiRef then lockGuiRef:Destroy() lockGuiRef = nil end
-    local G, Body = buildMiniGui("Lock / Aim", 290, 440, 300, 100)
+    local G, Body = buildMiniGui("Lock / Aim", 290, 470, 300, 100)
     lockGuiRef = G
 
     local StatusLbl = Instance.new("TextLabel")
@@ -1340,29 +1354,132 @@ local function openLockGui()
     StatusLbl.ZIndex = 52
     StatusLbl.Parent = Body
 
-    makePlayerList(Body, 26, 70, function(plr)
-        lockTarget = plr
-        StatusLbl.Text = "Target: " .. plr.DisplayName
-        showToast("Locked \226\134\146 " .. plr.DisplayName)
-    end)
+    -- ── THROUGH-WALL PLAYER LIST ──────────────────────────────
+    -- Search bar
+    local SFrame = Instance.new("Frame")
+    SFrame.Size = UDim2.new(1,-28,0,28)
+    SFrame.Position = UDim2.new(0,14,0,28)
+    SFrame.BackgroundColor3 = Color3.fromRGB(22,22,22)
+    SFrame.ZIndex = 52
+    SFrame.Parent = Body
+    makeCorner(SFrame, 7)
+    makeStroke(SFrame, Color3.fromRGB(50,50,50), 1)
 
-    local ClearBtn = makeBtn(Body, 168, 14, "\226\156\149  Clear Target (FOV auto)", 242)
+    local SearchBox = Instance.new("TextBox")
+    SearchBox.Size = UDim2.new(1,-14,1,0)
+    SearchBox.Position = UDim2.new(0,8,0,0)
+    SearchBox.BackgroundTransparency = 1
+    SearchBox.PlaceholderText = "Search player..."
+    SearchBox.PlaceholderColor3 = Color3.fromRGB(70,70,70)
+    SearchBox.Text = ""
+    SearchBox.TextColor3 = Color3.fromRGB(210,210,210)
+    SearchBox.Font = Enum.Font.Gotham
+    SearchBox.TextSize = 12
+    SearchBox.ClearTextOnFocus = false
+    SearchBox.ZIndex = 53
+    SearchBox.Parent = SFrame
+
+    -- Scroll list for player names — AlwaysOnTop BillboardGui means we can click
+    -- even when they're behind walls in the 3D world
+    local Scroll = Instance.new("ScrollingFrame")
+    Scroll.Size = UDim2.new(1,-28,0,80)
+    Scroll.Position = UDim2.new(0,14,0,60)
+    Scroll.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    Scroll.BorderSizePixel = 0
+    Scroll.ScrollBarThickness = 3
+    Scroll.ScrollBarImageColor3 = Color3.fromRGB(80,80,80)
+    Scroll.CanvasSize = UDim2.new(0,0,0,0)
+    Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Scroll.ZIndex = 52
+    Scroll.Parent = Body
+    makeCorner(Scroll, 6)
+    makeStroke(Scroll, Color3.fromRGB(50,50,50), 1)
+
+    local SLayout = Instance.new("UIListLayout")
+    SLayout.Padding = UDim.new(0,2)
+    SLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    SLayout.Parent = Scroll
+
+    local function refreshList(filter)
+        for _, c in ipairs(Scroll:GetChildren()) do
+            if c:IsA("TextButton") then c:Destroy() end
+        end
+        local q = (filter or ""):lower()
+        for i, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                local name = plr.DisplayName .. " (@" .. plr.Name .. ")"
+                if q == "" or plr.Name:lower():find(q,1,true) or plr.DisplayName:lower():find(q,1,true) then
+                    local Row = Instance.new("TextButton")
+                    Row.Size = UDim2.new(1,0,0,30)
+                    Row.BackgroundColor3 = Color3.fromRGB(28,28,28)
+                    Row.Text = name
+                    Row.TextColor3 = Color3.fromRGB(210,210,210)
+                    Row.Font = Enum.Font.Gotham
+                    Row.TextSize = 12
+                    Row.BorderSizePixel = 0
+                    Row.LayoutOrder = i
+                    Row.ZIndex = 53
+                    Row.Parent = Scroll
+                    makeCorner(Row, 6)
+                    Row.MouseEnter:Connect(function() Row.BackgroundColor3 = Color3.fromRGB(40,40,40) end)
+                    Row.MouseLeave:Connect(function() Row.BackgroundColor3 = Color3.fromRGB(28,28,28) end)
+                    Row.MouseButton1Click:Connect(function()
+                        lockTarget = plr
+                        StatusLbl.Text = "Target: " .. plr.DisplayName
+                        -- Highlight selected row
+                        for _, c2 in ipairs(Scroll:GetChildren()) do
+                            if c2:IsA("TextButton") then c2.BackgroundColor3 = Color3.fromRGB(28,28,28) end
+                        end
+                        Row.BackgroundColor3 = Color3.fromRGB(20,60,20)
+                        showToast("Locked → " .. plr.DisplayName)
+                    end)
+                end
+            end
+        end
+    end
+    refreshList()
+    SearchBox:GetPropertyChangedSignal("Text"):Connect(function() refreshList(SearchBox.Text) end)
+
+    local RefBtn = makeBtn(Body, 144, 14, "↻ Refresh", 80, 22)
+    RefBtn.MouseButton1Click:Connect(function() refreshList(SearchBox.Text) end)
+
+    -- Also: clicking their GhoulNameTag in the world locks them through walls
+    -- We hook this via a module-level InputBegan for AlwaysOnTop billboard click
+    -- (This is handled in buildStatusBar after tags are created — see note below)
+
+    local ClearBtn = makeBtn(Body, 144, 104, "✕ Clear Target", 132, 22)
     ClearBtn.MouseButton1Click:Connect(function()
         lockTarget = nil
         StatusLbl.Text = "No target — auto aims nearest in FOV"
-        showToast("Target cleared — FOV auto")
+        for _, c2 in ipairs(Scroll:GetChildren()) do
+            if c2:IsA("TextButton") then c2.BackgroundColor3 = Color3.fromRGB(28,28,28) end
+        end
+        showToast("Target cleared")
     end)
 
-    local _, getFOV = makeSlider(Body, 210, "FOV Radius (px)", 20, 800, lockFOV)
+    local _, getFOV = makeSlider(Body, 175, "FOV Radius (px)", 20, 800, lockFOV)
 
-    local SABtn = makeBtn(Body, 272, 14, silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF", 128)
+    local SABtn = makeBtn(Body, 237, 14, silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF", 128)
     SABtn.BackgroundColor3 = silentAimActive and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
-    local ALBtn = makeBtn(Body, 272, 150, aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF", 126)
+    local ALBtn = makeBtn(Body, 237, 150, aimlockEnabled and "Aimlock: ON" or "Aimlock: OFF", 126)
     ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
+
+    -- K key hint
+    local KHintLbl = Instance.new("TextLabel")
+    KHintLbl.Size = UDim2.new(1,-28,0,14)
+    KHintLbl.Position = UDim2.new(0,14,0,278)
+    KHintLbl.BackgroundTransparency = 1
+    KHintLbl.Text = "Hold K = activate silent aim snap | Aimlock always tracks"
+    KHintLbl.TextColor3 = Color3.fromRGB(100,100,100)
+    KHintLbl.Font = Enum.Font.Gotham
+    KHintLbl.TextSize = 10
+    KHintLbl.TextXAlignment = Enum.TextXAlignment.Left
+    KHintLbl.ZIndex = 52
+    KHintLbl.Parent = Body
 
     local KLabel = Instance.new("TextLabel")
     KLabel.Size = UDim2.new(1,-28,0,14)
-    KLabel.Position = UDim2.new(0,14,0,315)
+    KLabel.Position = UDim2.new(0,14,0,298)
     KLabel.BackgroundTransparency = 1
     KLabel.Text = "Keybinds:"
     KLabel.TextColor3 = Color3.fromRGB(120,120,120)
@@ -1372,8 +1489,8 @@ local function openLockGui()
     KLabel.ZIndex = 52
     KLabel.Parent = Body
 
-    local KillBtn = makeBtn(Body, 333, 14, lockKeybind == Enum.KeyCode.Unknown and "Set kill-all key" or "Kill: "..lockKeybind.Name, 118)
-    local FovKBtn = makeBtn(Body, 333, 148, fovHideKeybind == Enum.KeyCode.Unknown and "Set FOV hide key" or "FOV: "..fovHideKeybind.Name, 118)
+    local KillBtn = makeBtn(Body, 316, 14, lockKeybind == Enum.KeyCode.Unknown and "Set kill-all key" or "Kill: "..lockKeybind.Name, 118)
+    local FovKBtn = makeBtn(Body, 316, 148, fovHideKeybind == Enum.KeyCode.Unknown and "Set FOV hide key" or "FOV: "..fovHideKeybind.Name, 118)
 
     local listeningKill, listeningFov = false, false
     KillBtn.MouseButton1Click:Connect(function()
@@ -1398,7 +1515,7 @@ local function openLockGui()
             lockKeybind = inp.KeyCode
             KillBtn.Text = "Kill: " .. inp.KeyCode.Name
             KillBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
-            showToast("Kill-all key \226\134\146 " .. inp.KeyCode.Name)
+            showToast("Kill-all key → " .. inp.KeyCode.Name)
             return
         end
         if listeningFov then
@@ -1406,14 +1523,18 @@ local function openLockGui()
             fovHideKeybind = inp.KeyCode
             FovKBtn.Text = "FOV: " .. inp.KeyCode.Name
             FovKBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
-            showToast("FOV hide key \226\134\146 " .. inp.KeyCode.Name)
+            showToast("FOV hide key → " .. inp.KeyCode.Name)
             return
         end
 
         if fovHideKeybind ~= Enum.KeyCode.Unknown and inp.KeyCode == fovHideKeybind then
-            fovVisible = not fovVisible
-            updateFovCircle()
-            showToast(fovVisible and "FOV circle shown" or "FOV circle hidden")
+            fovHidden = not fovHidden
+            if fovHidden then
+                if lockFovGui then lockFovGui:Destroy() lockFovGui = nil end
+            else
+                updateFovCircle()
+            end
+            showToast(fovHidden and "FOV hidden" or "FOV shown")
             return
         end
 
@@ -1434,10 +1555,12 @@ local function openLockGui()
         SABtn.Text = silentAimActive and "Silent Aim: ON" or "Silent Aim: OFF"
         SABtn.BackgroundColor3 = silentAimActive and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
         lockFOV = getFOV(); updateFovCircle()
-        showToast(silentAimActive and "Silent Aim ON" or "Silent Aim OFF")
+        showToast(silentAimActive and "Silent Aim ON — hold K to snap" or "Silent Aim OFF")
         if silentAimActive then
             RunService:BindToRenderStep("GhoulSilentAim", 200, function()
                 if not silentAimActive then RunService:UnbindFromRenderStep("GhoulSilentAim"); return end
+                -- Only actually move camera when K is held — otherwise tracking is invisible
+                if not silentAimKeyHeld then return end
                 lockFOV = getFOV()
                 local target = lockTarget or getTargetInFOV()
                 if not target or not target.Character then return end
@@ -1449,10 +1572,15 @@ local function openLockGui()
                     predicted  = head.Position + hrp.AssemblyLinearVelocity * (0.08 + dist/1500)
                 end
                 local sp, on = Camera:WorldToViewportPoint(predicted)
-                if not on then sp, on = Camera:WorldToViewportPoint(head.Position) if not on then return end predicted = head.Position end
+                if not on then
+                    local _, on2 = Camera:WorldToViewportPoint(head.Position)
+                    if not on2 then return end
+                    predicted = head.Position
+                    sp, on = Camera:WorldToViewportPoint(predicted)
+                end
                 local vp = Camera.ViewportSize
                 if math.sqrt((sp.X-vp.X/2)^2+(sp.Y-vp.Y/2)^2) <= lockFOV then
-                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, predicted), 0.25)
+                    Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, predicted), 0.3)
                 end
             end)
         else
@@ -1466,12 +1594,12 @@ local function openLockGui()
         ALBtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,80,160) or Color3.fromRGB(35,35,35)
         lockFOV = getFOV(); updateFovCircle()
 
-        -- Aimlock always toggles silent aim with it
+        -- Aimlock also enables silent aim
         silentAimActive = aimlockEnabled
         SABtn.Text = aimlockEnabled and "Silent Aim: ON" or "Silent Aim: OFF"
         SABtn.BackgroundColor3 = aimlockEnabled and Color3.fromRGB(20,120,20) or Color3.fromRGB(35,35,35)
 
-        showToast(aimlockEnabled and "Aimlock + Silent Aim ON" or "Aimlock + Silent Aim OFF")
+        showToast(aimlockEnabled and "Aimlock ON — hold K for snap too" or "Aimlock + Silent Aim OFF")
 
         if not aimlockEnabled then
             if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
@@ -1479,19 +1607,36 @@ local function openLockGui()
             return
         end
 
-        -- Advanced prediction: track velocity history for acceleration-aware extrapolation
-        local velHistory = {}        -- ring buffer of recent velocities
-        local velHistoryMax = 6      -- samples to keep
-        local lastHRPPos = nil
-        local lastTick   = tick()
+        -- Re-bind silent aim with K-hold gate
+        RunService:UnbindFromRenderStep("GhoulSilentAim")
+        RunService:BindToRenderStep("GhoulSilentAim", 200, function()
+            if not silentAimActive then RunService:UnbindFromRenderStep("GhoulSilentAim"); return end
+            if not silentAimKeyHeld then return end
+            lockFOV = getFOV()
+            local target = lockTarget or getTargetInFOV()
+            if not target or not target.Character then return end
+            local head = target.Character:FindFirstChild("Head"); if not head then return end
+            local hrp  = target.Character:FindFirstChild("HumanoidRootPart")
+            local predicted = head.Position
+            if hrp then
+                local dist = (Camera.CFrame.Position - head.Position).Magnitude
+                predicted  = head.Position + hrp.AssemblyLinearVelocity * (0.08 + dist/1500)
+            end
+            local sp, on = Camera:WorldToViewportPoint(predicted)
+            if not on then return end
+            local vp = Camera.ViewportSize
+            if math.sqrt((sp.X-vp.X/2)^2+(sp.Y-vp.Y/2)^2) <= lockFOV then
+                Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, predicted), 0.3)
+            end
+        end)
 
-        RunService:UnbindFromRenderStep("GhoulSilentAim")  -- clear any old silent aim
+        local velHistory = {}
+        local velHistoryMax = 6
 
         if aimlockConn then aimlockConn:Disconnect() end
         aimlockConn = RunService.RenderStepped:Connect(function(dt)
             if not aimlockEnabled then
                 if aimlockConn then aimlockConn:Disconnect() aimlockConn = nil end
-                RunService:UnbindFromRenderStep("GhoulSilentAim")
                 return
             end
 
@@ -1503,19 +1648,14 @@ local function openLockGui()
             local hrp  = target.Character:FindFirstChild("HumanoidRootPart")
             if not head or not hrp then return end
 
-            -- Sample velocity and build acceleration estimate from history
             local curVel = hrp.AssemblyLinearVelocity
-
-            -- Push into history ring buffer
             table.insert(velHistory, curVel)
             if #velHistory > velHistoryMax then table.remove(velHistory, 1) end
 
-            -- Average recent velocities for smoothed prediction
             local avgVel = Vector3.zero
             for _, v in ipairs(velHistory) do avgVel = avgVel + v end
             avgVel = avgVel / math.max(#velHistory, 1)
 
-            -- Acceleration = change in velocity over time
             local accel = Vector3.zero
             if #velHistory >= 2 then
                 local newest = velHistory[#velHistory]
@@ -1525,16 +1665,9 @@ local function openLockGui()
 
             local camPos = Camera.CFrame.Position
             local dist   = (camPos - head.Position).Magnitude
-
-            -- Dynamic lookahead: base 80ms + distance factor + acceleration bonus
             local lookahead = 0.08 + dist / 1200 + accel.Magnitude * 0.002
+            local predicted = head.Position + avgVel * lookahead + accel * (lookahead * lookahead * 0.5)
 
-            -- Predicted position using velocity + half-acceleration (kinematic)
-            local predicted = head.Position
-                + avgVel   * lookahead
-                + accel    * (lookahead * lookahead * 0.5)
-
-            -- Clamp to reasonable range so we don't wildly overshoot
             local predDist = (predicted - head.Position).Magnitude
             if predDist > dist * 0.5 then
                 predicted = head.Position + (predicted - head.Position).Unit * (dist * 0.5)
@@ -1542,16 +1675,11 @@ local function openLockGui()
 
             local sp, on = Camera:WorldToViewportPoint(predicted)
             if not on then
-                -- Fallback: lock directly to head
-                Camera.CFrame = CFrame.new(camPos, head.Position)
-                return
+                Camera.CFrame = CFrame.new(camPos, head.Position); return
             end
 
             local vp = Camera.ViewportSize
-            local screenDist = math.sqrt((sp.X - vp.X/2)^2 + (sp.Y - vp.Y/2)^2)
-
-            if screenDist <= lockFOV then
-                -- Hard snap — no lerp for maximum accuracy on fast macros
+            if math.sqrt((sp.X-vp.X/2)^2+(sp.Y-vp.Y/2)^2) <= lockFOV then
                 Camera.CFrame = CFrame.new(camPos, predicted)
             end
         end)
@@ -3352,14 +3480,20 @@ local function buildStatusBar()
         clickBtn.ZIndex                 = 6
         clickBtn.Parent                 = bb
         clickBtn.MouseButton1Click:Connect(function()
-            -- Click the tag to teleport
+            -- Click the tag to teleport AND lock onto this player
             local myChar = LocalPlayer.Character; if not myChar then return end
             local myHRP  = myChar:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
             if head and head.Parent then
                 local targetHRP = head.Parent:FindFirstChild("HumanoidRootPart")
+                local plr = Players:GetPlayerFromCharacter(head.Parent)
                 if targetHRP then
                     myHRP.CFrame = targetHRP.CFrame + Vector3.new(3, 0, 0)
                     showToast("Teleported to " .. head.Parent.Name)
+                end
+                -- Also set as aimlock target so clicking through walls locks onto them
+                if plr and plr ~= LocalPlayer then
+                    lockTarget = plr
+                    showToast("Locked → " .. plr.DisplayName)
                 end
             end
         end)
@@ -3374,17 +3508,26 @@ local function buildStatusBar()
                 stroke = Color3.fromRGB(60,0,0), strokeT = 0,
                 size = 19, w = 230, h = 48, y = 2.6,
             })
+            -- Override the outline to dark red instead of white so the tag reads red throughout
+            outline.TextColor3             = Color3.fromRGB(180, 0, 0)
+            outline.TextStrokeColor3       = Color3.fromRGB(80, 0, 0)
+            outline.TextStrokeTransparency = 0
+
             local gc = RunService.Heartbeat:Connect(function()
                 if not head.Parent then gc:Disconnect() return end
                 local fire = math.sin(tick() * 38) > 0.82
                 if fire then
                     bb.StudsOffset = Vector3.new(math.random(-3,3)*0.05, 2.6+math.random(-2,2)*0.04, 0)
-                    lbl.TextColor3 = math.random()>0.5 and Color3.fromRGB(255,0,0) or Color3.fromRGB(200,30,30)
+                    local bright = math.random() > 0.5
+                    local col    = bright and Color3.fromRGB(255,0,0) or Color3.fromRGB(200,30,30)
+                    lbl.TextColor3     = col
+                    outline.TextColor3 = bright and Color3.fromRGB(160,0,0) or Color3.fromRGB(120,0,0)
                     local txt = math.random()>0.88 and "👑 Gh0ul 0WNER" or "👑 Ghoul OWNER"
                     lbl.Text = txt; outline.Text = txt
                 else
-                    bb.StudsOffset = Vector3.new(0,2.6,0)
-                    lbl.TextColor3 = Color3.fromRGB(255,30,30)
+                    bb.StudsOffset     = Vector3.new(0,2.6,0)
+                    lbl.TextColor3     = Color3.fromRGB(255,30,30)
+                    outline.TextColor3 = Color3.fromRGB(180,0,0)
                     lbl.Text = "👑 Ghoul OWNER"; outline.Text = "👑 Ghoul OWNER"
                 end
             end)
