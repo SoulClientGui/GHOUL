@@ -625,6 +625,7 @@ local function openSpeedGui()
         speedLocked = true
         lockedSpeed = getSpd()
         StatusLbl.Text = "Speed: " .. lockedSpeed
+        saveState()
 
         if speedConn then speedConn:Disconnect() speedConn = nil end
         speedConn = RunService.Heartbeat:Connect(function()
@@ -653,6 +654,7 @@ local function openSpeedGui()
         lockedSpeed = 16
         if speedConn then speedConn:Disconnect() speedConn = nil end
         StatusLbl.Text = "Drag slider to set speed"
+        saveState()
         local char = LocalPlayer.Character
         if char then
             local hum = char:FindFirstChildOfClass("Humanoid")
@@ -2916,6 +2918,52 @@ end
 -- ============================================================
 --          CHAT COMMAND LISTENER (type in chat)
 -- ============================================================
+-- ── AUTO-SAVE HOOKS ──────────────────────────────────────────
+-- Wrap every feature toggle so state is saved to disk on each change.
+-- This means rejoining the game restores exactly what was active.
+do
+    local orig_toggleNoclip     = toggleNoclip
+    local orig_toggleGod        = toggleGod
+    local orig_toggleInvisible  = toggleInvisible
+    local orig_toggleFullbright = toggleFullbright
+    local orig_toggleESP        = toggleESP
+    local orig_toggleBox        = toggleBox
+    local orig_toggleChams      = toggleChams
+
+    toggleNoclip = function(...)
+        orig_toggleNoclip(...)
+        saveState()
+    end
+    toggleGod = function(...)
+        orig_toggleGod(...)
+        saveState()
+    end
+    toggleInvisible = function(...)
+        orig_toggleInvisible(...)
+        saveState()
+    end
+    toggleFullbright = function(...)
+        orig_toggleFullbright(...)
+        saveState()
+    end
+    toggleESP = function(...)
+        orig_toggleESP(...)
+        saveState()
+    end
+    toggleBox = function(...)
+        orig_toggleBox(...)
+        saveState()
+    end
+    toggleChams = function(...)
+        orig_toggleChams(...)
+        saveState()
+    end
+end
+
+-- Speed changes are caught via the speedConn heartbeat already reading lockedSpeed;
+-- we just need to save whenever the speed lock state changes. This is handled
+-- inside openSpeedGui's startSpeedLock and reset button via explicit saveState calls.
+
 local function setupChatListener()
     local function handleCmd(rawMsg)
         -- Keep original case for name arguments, lowercase only the command part
@@ -3890,6 +3938,85 @@ local function setStatus(text,color)
     StatusLabel.Text=text StatusLabel.TextColor3=color StatusDot.BackgroundColor3=color
 end
 
+-- ============================================================
+--              PERSISTENCE (save state between sessions)
+-- ============================================================
+-- Uses writefile/readfile supported by Xeno and most executors.
+-- State is saved as a simple JSON-style key=value string.
+local SAVE_FILE = "ghoul_state.txt"
+
+local function serializeColor(c)
+    return math.floor(c.R*255)..","..math.floor(c.G*255)..","..math.floor(c.B*255)
+end
+
+local function parseColor(s)
+    local r,g,b = s:match("(%d+),(%d+),(%d+)")
+    if r then return Color3.fromRGB(tonumber(r),tonumber(g),tonumber(b)) end
+    return Color3.fromRGB(255,255,255)
+end
+
+local function saveState()
+    local lines = {
+        "fly="          .. tostring(flyActive),
+        "noclip="       .. tostring(noclipActive),
+        "god="          .. tostring(godActive),
+        "invis="        .. tostring(invisActive),
+        "esp="          .. tostring(espActive),
+        "box="          .. tostring(boxActive),
+        "chams="        .. tostring(chamsActive),
+        "fullbright="   .. tostring(fullbrightActive),
+        "speedLocked="  .. tostring(speedLocked),
+        "lockedSpeed="  .. tostring(lockedSpeed),
+        "fov="          .. tostring(lockFOV),
+        "espColor="     .. serializeColor(espColor),
+        "boxColor="     .. serializeColor(boxColor),
+        "chamsColor="   .. serializeColor(chamsColor),
+    }
+    pcall(function() writefile(SAVE_FILE, table.concat(lines, "\n")) end)
+end
+
+local function loadState()
+    local ok, data = pcall(function() return readfile(SAVE_FILE) end)
+    if not ok or not data then return {} end
+    local state = {}
+    for line in data:gmatch("[^\n]+") do
+        local k, v = line:match("^(.-)=(.+)$")
+        if k then state[k] = v end
+    end
+    return state
+end
+
+local function applyState(state)
+    -- Helper to read bool
+    local function bool(k) return state[k] == "true" end
+
+    if bool("fly")        then task.spawn(openFlyGui) end
+    if bool("noclip")     then toggleNoclip() end
+    if bool("god")        then toggleGod() end
+    if bool("invis")      then toggleInvisible() end
+    if bool("fullbright") then toggleFullbright() end
+
+    if bool("esp") then
+        espColor = parseColor(state["espColor"] or "255,255,255")
+        toggleESP()
+    end
+    if bool("box") then
+        boxColor = parseColor(state["boxColor"] or "255,255,255")
+        toggleBox()
+    end
+    if bool("chams") then
+        chamsColor = parseColor(state["chamsColor"] or "255,255,255")
+        toggleChams()
+    end
+    if bool("speedLocked") then
+        lockedSpeed = tonumber(state["lockedSpeed"]) or 16
+        task.spawn(openSpeedGui)
+    end
+    if state["fov"] then
+        lockFOV = tonumber(state["fov"]) or 150
+    end
+end
+
 local function closeAndLaunch(delay)
     task.delay(delay,function()
         TweenService:Create(KWindow,TweenInfo.new(0.3,Enum.EasingStyle.Quad,Enum.EasingDirection.In),{
@@ -3899,6 +4026,14 @@ local function closeAndLaunch(delay)
         task.delay(0.4,function()
             ScreenGui:Destroy()
             buildStatusBar()
+            -- Restore previous session state after the bar is built
+            task.delay(0.8, function()
+                local state = loadState()
+                if next(state) then
+                    applyState(state)
+                    showToast("✔ Session restored!")
+                end
+            end)
         end)
     end)
 end
