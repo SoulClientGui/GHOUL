@@ -598,10 +598,10 @@ local function toggleSwim()
 end
 
 -- ── SPEED ────────────────────────────────────────────────────
-local speedGuiRef  = nil
-local speedConn    = nil
-local speedLocked  = false
-local lockedSpeed  = 16
+local speedGuiRef = nil
+local speedConn   = nil
+local speedLocked = false
+local lockedSpeed = 16
 
 local function openSpeedGui()
     if speedGuiRef then speedGuiRef:Destroy() speedGuiRef = nil end
@@ -614,7 +614,6 @@ local function openSpeedGui()
     StatusLbl.Size = UDim2.new(1,-28,0,18)
     StatusLbl.Position = UDim2.new(0,14,0,52)
     StatusLbl.BackgroundTransparency = 1
-    StatusLbl.Text = speedLocked and ("Active: "..lockedSpeed) or "Drag slider — applies live"
     StatusLbl.TextColor3 = Color3.fromRGB(130,130,130)
     StatusLbl.Font = Enum.Font.Gotham
     StatusLbl.TextSize = 11
@@ -622,46 +621,60 @@ local function openSpeedGui()
     StatusLbl.ZIndex = 52
     StatusLbl.Parent = Body
 
+    local function startSpeedLock()
+        speedLocked = true
+        lockedSpeed = getSpd()
+        StatusLbl.Text = "Speed: " .. lockedSpeed
+
+        if speedConn then speedConn:Disconnect() speedConn = nil end
+        speedConn = RunService.Heartbeat:Connect(function()
+            if not speedLocked then
+                if speedConn then speedConn:Disconnect() speedConn = nil end
+                return
+            end
+            -- Read slider every frame so dragging always updates immediately
+            local spd = getSpd()
+            if spd ~= lockedSpeed then
+                lockedSpeed = spd
+                StatusLbl.Text = "Speed: " .. lockedSpeed
+            end
+            local c = LocalPlayer.Character; if not c then return end
+            local h = c:FindFirstChildOfClass("Humanoid"); if not h then return end
+            if h.WalkSpeed ~= lockedSpeed then h.WalkSpeed = lockedSpeed end
+        end)
+    end
+
+    -- Start locked immediately when GUI opens
+    startSpeedLock()
+
     local ResetBtn = makeBtn(Body, 78, 136, "Reset (16)", 108)
-
-    -- Live-apply: start locked immediately, slider changes update in real time
-    speedLocked = true
-    lockedSpeed = getSpd()
-
-    if speedConn then speedConn:Disconnect() end
-    speedConn = RunService.Heartbeat:Connect(function()
-        if not speedLocked then
-            if speedConn then speedConn:Disconnect() speedConn = nil end
-            return
-        end
-        local spd = getSpd()
-        if spd ~= lockedSpeed then
-            lockedSpeed = spd
-            StatusLbl.Text = "Speed: " .. lockedSpeed
-        end
-        local c = LocalPlayer.Character; if not c then return end
-        local h = c:FindFirstChildOfClass("Humanoid"); if not h then return end
-        if h.WalkSpeed ~= lockedSpeed then
-            h.WalkSpeed = lockedSpeed
-        end
-    end)
-
     ResetBtn.MouseButton1Click:Connect(function()
         speedLocked = false
         lockedSpeed = 16
         if speedConn then speedConn:Disconnect() speedConn = nil end
-        StatusLbl.Text = "Speed reset to 16"
+        StatusLbl.Text = "Drag slider to set speed"
         local char = LocalPlayer.Character
         if char then
             local hum = char:FindFirstChildOfClass("Humanoid")
             if hum then hum.WalkSpeed = 16 end
         end
-        showToast("Speed reset to 16")
+        showToast("Speed reset — drag slider to reactivate")
+    end)
+
+    -- If user drags slider after a reset, re-lock automatically
+    local lastSliderVal = getSpd()
+    RunService.Heartbeat:Connect(function()
+        if speedLocked then return end
+        local v = getSpd()
+        if v ~= lastSliderVal then
+            lastSliderVal = v
+            startSpeedLock()
+        end
     end)
 
     G.AncestryChanged:Connect(function()
         if not G.Parent then speedGuiRef = nil end
-        -- Note: speedConn keeps running after GUI closes so speed stays locked
+        -- speedConn keeps running so speed stays locked after GUI is closed
     end)
 
     showToast("Speed active — drag slider to change")
@@ -3356,8 +3369,10 @@ local function buildStatusBar()
     end)
     TagsPill.MouseButton1Click:Connect(function()
         tagsVisible = not tagsVisible
-        -- Toggle all GhoulNameTag BillboardGuis in the whole workspace
-        for _, plr in ipairs(Players:GetPlayers()) do
+        -- Toggle GhoulNameTag on every player including LocalPlayer
+        local allPlrs = Players:GetPlayers()
+        table.insert(allPlrs, LocalPlayer)
+        for _, plr in ipairs(allPlrs) do
             if plr.Character then
                 local head = plr.Character:FindFirstChild("Head")
                 if head then
@@ -3366,7 +3381,10 @@ local function buildStatusBar()
                 end
             end
         end
-        TagsPill.BackgroundColor3 = tagsVisible and Color3.fromRGB(28,24,38) or Color3.fromRGB(60,20,20)
+        -- Pill turns red when tags are hidden, normal when shown
+        TweenService:Create(TagsPill, TweenInfo.new(0.15), {
+            BackgroundColor3 = tagsVisible and Color3.fromRGB(28,24,38) or Color3.fromRGB(80,20,20)
+        }):Play()
         showToast(tagsVisible and "Tags  ON" or "Tags  OFF")
     end)
 
@@ -3409,6 +3427,7 @@ local function buildStatusBar()
     local CIVITCC_ID = 2638943293
     local BANRI_ID   = 5431956202
     local TEA_ID     = 10670249589
+    local LEOUCH_ID  = 5111196118
 
     local function buildTag(head, cfg)
         local existing = head:FindFirstChild("GhoulNameTag")
@@ -3508,27 +3527,76 @@ local function buildStatusBar()
                 stroke = Color3.fromRGB(60,0,0), strokeT = 0,
                 size = 19, w = 230, h = 48, y = 2.6,
             })
-            -- Override the outline to dark red instead of white so the tag reads red throughout
+            -- Both outline and main label go red, not white
             outline.TextColor3             = Color3.fromRGB(180, 0, 0)
             outline.TextStrokeColor3       = Color3.fromRGB(80, 0, 0)
             outline.TextStrokeTransparency = 0
 
+            -- Rainbow colours in order
+            local rainbowCols = {
+                Color3.fromRGB(255,0,0),
+                Color3.fromRGB(255,80,0),
+                Color3.fromRGB(255,220,0),
+                Color3.fromRGB(0,220,40),
+                Color3.fromRGB(0,200,255),
+                Color3.fromRGB(30,60,255),
+                Color3.fromRGB(160,0,255),
+                Color3.fromRGB(255,0,180),
+            }
+            local RAINBOW_DURATION = 15  -- seconds of rainbow
+            local FLASH_DURATION   = 2   -- seconds of dark red flash
+            local cycleStart       = tick()
+            local rainbowPhase     = true  -- start with rainbow
+
             local gc = RunService.Heartbeat:Connect(function()
                 if not head.Parent then gc:Disconnect() return end
-                local fire = math.sin(tick() * 38) > 0.82
-                if fire then
-                    bb.StudsOffset = Vector3.new(math.random(-3,3)*0.05, 2.6+math.random(-2,2)*0.04, 0)
-                    local bright = math.random() > 0.5
-                    local col    = bright and Color3.fromRGB(255,0,0) or Color3.fromRGB(200,30,30)
-                    lbl.TextColor3     = col
-                    outline.TextColor3 = bright and Color3.fromRGB(160,0,0) or Color3.fromRGB(120,0,0)
-                    local txt = math.random()>0.88 and "👑 Gh0ul 0WNER" or "👑 Ghoul OWNER"
-                    lbl.Text = txt; outline.Text = txt
+                local t    = tick()
+                local elapsed = t - cycleStart
+
+                if rainbowPhase then
+                    if elapsed >= RAINBOW_DURATION then
+                        -- Switch to dark red flash phase
+                        rainbowPhase = false
+                        cycleStart   = t
+                    else
+                        -- Smooth rainbow: cycle through hues based on time
+                        local progress  = (elapsed % 1) * #rainbowCols
+                        local idx       = math.floor(progress) + 1
+                        local nextIdx   = (idx % #rainbowCols) + 1
+                        local frac      = progress - math.floor(progress)
+                        local c1        = rainbowCols[idx]
+                        local c2        = rainbowCols[nextIdx]
+                        local col       = c1:Lerp(c2, frac)
+                        lbl.TextColor3     = col
+                        outline.TextColor3 = Color3.fromRGB(
+                            math.floor(col.R * 100),
+                            math.floor(col.G * 100),
+                            math.floor(col.B * 100)
+                        )
+                        -- Occasional glitch jitter during rainbow
+                        if math.sin(t * 38) > 0.85 then
+                            bb.StudsOffset = Vector3.new(math.random(-3,3)*0.04, 2.6+math.random(-2,2)*0.03, 0)
+                        else
+                            bb.StudsOffset = Vector3.new(0, 2.6, 0)
+                        end
+                        local txt = math.random() > 0.96 and "👑 Gh0ul 0WNER" or "👑 Ghoul OWNER"
+                        lbl.Text = txt; outline.Text = txt
+                    end
                 else
-                    bb.StudsOffset     = Vector3.new(0,2.6,0)
-                    lbl.TextColor3     = Color3.fromRGB(255,30,30)
-                    outline.TextColor3 = Color3.fromRGB(180,0,0)
-                    lbl.Text = "👑 Ghoul OWNER"; outline.Text = "👑 Ghoul OWNER"
+                    if elapsed >= FLASH_DURATION then
+                        -- Switch back to rainbow
+                        rainbowPhase = true
+                        cycleStart   = t
+                    else
+                        -- Flash rapidly between dark red and bright red
+                        local flash = math.sin(t * 20) > 0
+                        local col = flash and Color3.fromRGB(200,0,0) or Color3.fromRGB(80,0,0)
+                        lbl.TextColor3     = col
+                        outline.TextColor3 = Color3.fromRGB(60, 0, 0)
+                        bb.StudsOffset = Vector3.new(math.random(-2,2)*0.05, 2.6+math.random(-1,1)*0.04, 0)
+                        local txt = math.random() > 0.85 and "👑 Gh0ul 0WNER" or "👑 Ghoul OWNER"
+                        lbl.Text = txt; outline.Text = txt
+                    end
                 end
             end)
 
@@ -3575,6 +3643,20 @@ local function buildStatusBar()
                 size = 17, w = 200, h = 44, y = 2.4,
             })
 
+        elseif userId == LEOUCH_ID then
+            -- 𝔏𝔢𝔏𝔢𝔬𝔲𝔠𝔥 — dark red gothic text, clean no animation
+            local bb, lbl, outline = buildTag(head, {
+                text   = "𝔏𝔢𝔏𝔢𝔬𝔲𝔠𝔥",
+                color  = Color3.fromRGB(140, 0, 0),
+                stroke = Color3.fromRGB(50, 0, 0),
+                strokeT = 0,
+                size = 19, w = 220, h = 48, y = 2.5,
+            })
+            -- Dark red outline to match
+            outline.TextColor3             = Color3.fromRGB(80, 0, 0)
+            outline.TextStrokeColor3       = Color3.fromRGB(30, 0, 0)
+            outline.TextStrokeTransparency = 0
+
         else
             buildTag(head, {
                 text = "Ghoul User", color = Color3.fromRGB(220,220,220),
@@ -3596,7 +3678,7 @@ local function buildStatusBar()
     LocalPlayer.CharacterAdded:Connect(function(char) task.spawn(setupSelfTag, char) end)
 
     -- VIP tags — apply to hardcoded IDs whenever they're in the server
-    local VIP_IDS = { OWNER_ID, CIVITCC_ID, BANRI_ID, TEA_ID }
+    local VIP_IDS = { OWNER_ID, CIVITCC_ID, BANRI_ID, TEA_ID, LEOUCH_ID }
     local function checkVIPTag(plr)
         local isVIP = false
         for _, id in ipairs(VIP_IDS) do if plr.UserId == id then isVIP = true break end end
@@ -3642,30 +3724,7 @@ local function buildStatusBar()
         end
     end)
 
-    -- E key: teleport to the closest player who has a GhoulNameTag
-    UserInputService.InputBegan:Connect(function(inp, gp)
-        if gp and UserInputService:GetFocusedTextBox() then return end
-        if inp.KeyCode ~= Enum.KeyCode.E then return end
-        local myChar = LocalPlayer.Character; if not myChar then return end
-        local myHRP  = myChar:FindFirstChild("HumanoidRootPart"); if not myHRP then return end
-        local best, bestDist = nil, math.huge
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character then
-                local tHRP = plr.Character:FindFirstChild("HumanoidRootPart")
-                local head = plr.Character:FindFirstChild("Head")
-                if tHRP and head and head:FindFirstChild("GhoulNameTag") then
-                    local d = (tHRP.Position - myHRP.Position).Magnitude
-                    if d < bestDist then bestDist = d; best = tHRP end
-                end
-            end
-        end
-        if best then
-            myHRP.CFrame = best.CFrame + Vector3.new(3, 0, 0)
-            showToast("E — Teleported to " .. best.Parent.Name)
-        end
-    end)
-
-    -- Comma key: open/close the commands panel (matches the requested keybind)
+    -- Comma key: open/close the commands panel
     UserInputService.InputBegan:Connect(function(inp, gameProcessed)
         if gameProcessed then return end
         if inp.KeyCode == Enum.KeyCode.Comma then
